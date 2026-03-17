@@ -1,0 +1,43 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="glass-card">
+  <h2 class="mb-4"> Pup List</h2>
+  <table class="table table-bordered table-hover">
+    <thead class="table-light">
+      <tr>
+        <th>ID</th>
+        <th>Breeding ID</th>
+        <th>Sex</th>
+        <th>Genotype</th>
+        <th>Birth Date</th>
+        <th>Wean Due</th>
+        <th>Status</th>
+        <th>Notes</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for pup in pups %}
+      <tr>
+        <td>{{ pup.id }}</td>
+        <td>{{ pup.breeding_id }}</td>
+        <td>{{ pup.sex }}</td>
+        <td>{{ pup.genotype or '—' }}</td>
+        <td>{{ pup.birth_date.strftime('%Y-%m-%d') }}</td>
+
+        <td>{{ (pup.birth_date + timedelta(days=21)).strftime('%Y-%m-%d') }}</td>
+
+        <td>
+          {% if pup.weaning_due %}
+            <span class="badge bg-danger">Weaning Due!</span>
+          {% else %}
+            <span class="badge bg-success">On Track</span>
+          {% endif %}
+        </td>
+
+        <td>{{ pup.notes or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

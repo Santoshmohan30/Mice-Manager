@@ -1,0 +1,142 @@
+/* -----------------------------------
+    Global Font and Background
+----------------------------------- */
+body {
+  font-family: 'Segoe UI', 'Helvetica Neue', sans-serif;
+  background: url('../img/bg.jpg') no-repeat center center fixed;
+  background-size: cover;
+  margin: 0;
+  padding: 2rem;
+  color: #ffffff;
+}
+
+/* -----------------------------------
+    Glass Container Style
+----------------------------------- */
+.glass-container {
+  max-width: 960px;
+  margin: 2rem auto;
+  padding: 2rem 3rem;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+/* -----------------------------------
+    Navigation
+----------------------------------- */
+nav {
+  text-align: center;
+  margin-bottom: 1.5rem;
+}
+nav a {
+  display: inline-block;
+  color: #e0e0e0;
+  text-decoration: none;
+  margin: 0 12px;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  transition: color 0.3s ease, transform 0.2s;
+}
+nav a:hover {
+  color: #ffffff;
+  transform: scale(1.05);
+}
+
+/* -----------------------------------
+    Headings and Typography
+----------------------------------- */
+h1 {
+  text-align: center;
+  font-size: 2.5rem;
+  margin-bottom: 0.5rem;
+  color: #ffffff;
+}
+h2 {
+  font-size: 1.6rem;
+  color: #ffffff;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid rgba(255,255,255,0.2);
+  padding-bottom: 0.3rem;
+}
+
+/* -----------------------------------
+   Forms
+----------------------------------- */
+form input,
+form select,
+form textarea,
+form button {
+  width: 100%;
+  padding: 12px 14px;
+  margin-bottom: 1rem;
+  border: none;
+  border-radius: 10px;
+  background-color: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  font-size: 0.95rem;
+}
+form input:focus,
+form textarea:focus,
+form select:focus {
+  outline: none;
+  background-color: rgba(255, 255, 255, 0.25);
+}
+form button {
+  background-color: #29b6f6;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background 0.3s ease, transform 0.2s;
+}
+form button:hover {
+  background-color: #0288d1;
+  transform: scale(1.02);
+}
+
+/* -----------------------------------
+    Tables
+----------------------------------- */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1rem;
+  color: #f1f1f1;
+  font-size: 0.9rem;
+}
+th, td {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  text-align: left;
+}
+th {
+  background-color: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
+/* -----------------------------------
+    Flash Messages
+----------------------------------- */
+ul.flash-messages {
+  list-style: none;
+  padding: 0;
+}
+ul.flash-messages li {
+  background-color: rgba(255, 255, 255, 0.15);
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  border-left: 5px solid #ffc107;
+  color: #fff;
+  font-size: 0.95rem;
+}
+
+/* -----------------------------------
+   Footer (
+----------------------------------- */
+footer {
+  text-align: center;
+  margin-top: 2rem;
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.6);
+}

@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual environments
+venv/
+.venv/
+
+# Database
+*.db
+
+# macOS
+.DS_Store
+
+# Build
+build/
+dist/
+
+# PyInstaller
+*.spec
+
+# Instance folder
+instance/
+
+# Images
+*.png

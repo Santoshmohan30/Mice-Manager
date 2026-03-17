@@ -1,0 +1,104 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<div class="container mt-4">
+    <h2 class="text-center mb-4">Mouse List</h2>
+
+    <!-- Filter Form -->
+    <form method="get" class="row g-2 mb-4">
+        <div class="col-md-2">
+            <select name="strain" class="form-select">
+                <option value="">Strain</option>
+                {% for s in strains %}
+                    <option value="{{ s }}" {% if request.args.get('strain') == s %}selected{% endif %}>{{ s }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <select name="gender" class="form-select">
+                <option value="">Gender</option>
+                {% for g in genders %}
+                    <option value="{{ g }}" {% if request.args.get('gender') == g %}selected{% endif %}>{{ g }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <select name="genotype" class="form-select">
+                <option value="">Genotype</option>
+                {% for g in genotypes %}
+                    <option value="{{ g }}" {% if request.args.get('genotype') == g %}selected{% endif %}>{{ g }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <input type="date" name="dob_start" class="form-control" placeholder="DOB Start" value="{{ request.args.get('dob_start', '') }}">
+        </div>
+        <div class="col-md-2">
+            <input type="date" name="dob_end" class="form-control" placeholder="DOB End" value="{{ request.args.get('dob_end', '') }}">
+        </div>
+        <div class="col-md-2">
+            <select name="sort_dob" class="form-select">
+                <option value="">Sort DOB</option>
+                <option value="asc" {% if request.args.get('sort_dob') == 'asc' %}selected{% endif %}>Ascending</option>
+                <option value="desc" {% if request.args.get('sort_dob') == 'desc' %}selected{% endif %}>Descending</option>
+            </select>
+        </div>
+        <div class="col-12 d-flex justify-content-end">
+            <button type="submit" class="btn btn-primary">Filter</button>
+            <a href="{{ url_for('add_mouse') }}" class="btn btn-success ms-2">Add Mouse</a>
+        </div>
+    </form>
+
+    <!-- Mice Table -->
+    <div class="table-responsive">
+        <table class="table table-bordered table-hover align-middle text-center">
+            <thead class="table-dark">
+                <tr>
+                    <th>ID</th>
+                    <th>Strain</th>
+                    <th>Gender</th>
+                    <th>Genotype</th>
+                    <th>DOB</th>
+                    <th>Cage</th>
+                    <th>Training</th>
+                    <th>Project</th>
+                    <th>Notes</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for mouse in mice %}
+                <tr>
+                    <td>{{ mouse.id }}</td>
+                    <td>{{ mouse.strain }}</td>
+                    <td>{{ mouse.gender }}</td>
+                    <td>{{ mouse.genotype }}</td>
+                    <td>{{ mouse.dob }}</td>
+                    <td>{{ mouse.cage }}</td>
+                    <td>
+                        {% if mouse.training %}
+                            Yes
+                        {% else %}
+                            NA
+                        {% endif %}
+                    </td>
+                    <td>{{ mouse.project or '—' }}</td>
+                    <td>{{ mouse.notes or '' }}</td>
+                    <td>
+                        <a href="{{ url_for('edit_mouse', id=mouse.id) }}" class="btn btn-sm btn-warning">Edit</a>
+                        <form method="POST" action="{{ url_for('delete_mouse', id=mouse.id) }}" style="display:inline;" onsubmit="return confirm('Delete this mouse?');">
+                            <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="10">No mice found.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% endblock %}

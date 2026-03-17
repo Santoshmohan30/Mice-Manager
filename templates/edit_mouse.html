@@ -1,0 +1,40 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="container mt-5">
+  <h2>Edit Mouse Info</h2>
+  <form method="POST" action="{{ url_for('edit_mouse', id=mouse.id) }}">
+    <div class="mb-3">
+      <label class="form-label">Strain</label>
+      <input type="text" name="strain" class="form-control" value="{{ mouse.strain }}" required>
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Gender</label>
+      <select name="gender" class="form-control" required>
+        <option value="MALE" {% if mouse.gender == 'MALE' %}selected{% endif %}>MALE</option>
+        <option value="FEMALE" {% if mouse.gender == 'FEMALE' %}selected{% endif %}>FEMALE</option>
+      </select>
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Genotype</label>
+      <input type="text" name="genotype" class="form-control" value="{{ mouse.genotype }}">
+    </div>
+    <div class="mb-3">
+      <label class="form-label">DOB</label>
+      <input type="date" name="dob" class="form-control" value="{{ mouse.dob }}">
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Cage</label>
+      <input type="text" name="cage" class="form-control" value="{{ mouse.cage }}">
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Notes</label>
+      <textarea name="notes" class="form-control">{{ mouse.notes }}</textarea>
+    </div>
+    <button type="submit" class="btn btn-primary">Update Mouse</button>
+  </form>
+</div>
+{% endblock %}
+
+
+

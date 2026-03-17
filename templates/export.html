@@ -1,0 +1,46 @@
+{% extends 'layout.html' %}
+
+{% block content %}
+<style>
+    body {
+        background: black;
+        color: white;
+    }
+    .glass-card {
+        background: rgba(255, 255, 255, 0.08);
+        backdrop-filter: blur(8px);
+        border-radius: 12px;
+        padding: 2rem;
+        margin-top: 2rem;
+    }
+    a.export-link {
+        display: block;
+        margin-bottom: 1rem;
+        font-size: 1.2rem;
+        color: #00d4ff;
+        text-decoration: none;
+    }
+    a.export-link:hover {
+        text-decoration: underline;
+    }
+</style>
+
+<div class="container">
+    <div class="glass-card">
+        <h1 class="mb-4"> Export Data</h1>
+        <p class="lead">Download your mouse-related data below as CSV files.</p>
+
+        <a href="{{ url_for('export_csv', table='mice') }}" class="export-link"> Download Mice Data</a>
+        <a href="{{ url_for('export_csv', table='breeding') }}" class="export-link"> Download Breeding Records</a>
+        <a href="{{ url_for('export_csv', table='pups') }}" class="export-link"> Download Pups Data</a>
+
+        <!--  Not implemented yet in backend export_csv route -->
+        <!--
+        <a href="{{ url_for('export_csv', table='procedures') }}" class="export-link">Download Procedures</a>
+        <a href="{{ url_for('export_csv', table='calendar') }}" class="export-link"> Download Calendar Events</a>
+        -->
+
+        <p class="text-muted mt-3" style="font-size: 0.9rem;">🚧 Procedures & Calendar export not yet available. Add support in <code>export_csv()</code> to enable.</p>
+    </div>
+</div>
+{% endblock %}

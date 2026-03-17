@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Mice Manager </title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+
+  <!-- Optional Favicon -->
+  <link rel="icon" href="{{ url_for('static', filename='img/favicon.ico') }}" type="image/x-icon">
+</head>
+<body>
+
+  <div class="glass-container">
+
+    <!--  Header -->
+    <header>
+      <h1>Mice Manager <span style="font-size: 1.3rem;"> </span></h1>
+    </header>
+
+    <!--  Navigation -->
+    <nav>
+      <a href="{{ url_for('dashboard') }}">Dashboard</a>
+      <a href="{{ url_for('mice_list') }}">Mice</a>
+      <a href="{{ url_for('add_mouse') }}">Add Mouse</a>
+      <a href="{{ url_for('breeding_log') }}">Breeding</a>
+      <a href="{{ url_for('procedures') }}">Procedures</a>
+      <a href="{{ url_for('calendar_view') }}">Calendar</a>
+      <a href="{{ url_for('export_csv', table='mice') }}">Export</a>
+
+    </nav>
+
+    <!--  Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <ul class="flash-messages">
+          {% for category, message in messages %}
+            <li><strong>{{ category.title() }}:</strong> {{ message }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    {% endwith %}
+
+    <!--  Main Content -->
+    {% block content %}
+    {% endblock %}
+
+    <!--  Footer -->
+    <footer>
+      © {{ now().year }} Mice Manager | Built by Sonny – RoyLab
+    </footer>
+
+  </div>
+
+</body>
+</html>

@@ -1,0 +1,22 @@
+{% extends 'layout.html' %}
+{% block content %}
+<h2>Add New Mouse</h2>
+<form method="POST">
+  <label>Strain:</label><input name="strain"><br>
+  <label>Gender:</label><input name="gender"><br>
+  <label>Genotype:</label><input name="genotype"><br>
+  <label>DOB:</label><input name="dob" type="date"><br>
+  <label>Cage:</label><input name="cage"><br>
+  <label>Notes:</label><textarea name="notes"></textarea><br>
+
+  <!--  NEW FIELD: Training checkbox -->
+  <label>Training Mouse:</label>
+  <input type="checkbox" name="training"><br>
+
+  <!--  NEW FIELD: Project name -->
+  <label>Project:</label>
+  <input name="project"><br>
+
+  <button type="submit">Add Mouse</button>
+</form>
+{% endblock %}

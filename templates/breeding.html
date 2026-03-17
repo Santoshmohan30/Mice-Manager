@@ -1,0 +1,118 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="glass-card">
+  <h2 class="mb-4">Breeding Records</h2>
+  <a href="{{ url_for('add_breeding') }}" class="btn btn-primary mb-3">➕ Add Breeding Pair</a>
+
+  <table class="table table-hover table-bordered">
+    <thead class="table-light">
+      <tr>
+        <th>ID</th>
+        <th>Male ID</th>
+        <th>Female ID</th>
+        <th>Pair Date</th>
+        <th>Litter Count</th>
+        <th>Litter Date</th>
+        <th>Status</th>
+        <th>Weaning Date</th>
+        <th>Notes</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for record in records %}
+      <tr>
+        <td>{{ record.id }}</td>
+        <td>{{ record.male_id }}</td>
+        <td>{{ record.female_id }}</td>
+        <td>{{ record.pair_date }}</td>
+        <td>{{ record.litter_count or '' }}</td>
+        <td>{{ record.litter_date or '' }}</td>
+
+        <td>
+          {% if record.status == 'Weaned' %}
+            <span class="badge bg-success">{{ record.status }}</span>
+          {% elif record.status == 'Litter Growing' %}
+            <span class="badge bg-warning text-dark">{{ record.status }}</span>
+          {% elif record.status == 'Weaning Due' %}
+            <span class="badge bg-danger">{{ record.status }}</span>
+          {% elif record.status == 'Pregnant' %}
+            <span class="badge bg-info text-dark">{{ record.status }}</span>
+          {% else %}
+            <span class="badge bg-secondary">{{ record.status }}</span>
+          {% endif %}
+        </td>
+
+        <td>{{ record.wean_date or record.estimated_weaning_date }}</td>
+        <td>{{ record.notes or '' }}</td>
+        <td>
+          <form method="POST" action="{{ url_for('delete_breeding', id=record.id) }}" onsubmit="return confirm('Are you sure you want to delete?')">
+            <button type="submit" class="btn btn-danger btn-sm">🗑</button>
+          </form>
+        </td>
+      </tr>
+
+      <!-- Add Pup Form -->
+      <tr>
+        <td colspan="10">
+          <h5 class="mt-3">➕ Add Pup to Breeding ID {{ record.id }}</h5>
+          <form method="POST" action="{{ url_for('add_pup', breeding_id=record.id) }}">
+            <div class="row g-3">
+              <div class="col-md-2">
+                <input name="sex" class="form-control" placeholder="Sex (M/F)" required>
+              </div>
+              <div class="col-md-2">
+                <input name="genotype" class="form-control" placeholder="Genotype">
+              </div>
+              <div class="col-md-2">
+                <input name="birth_date" type="date" class="form-control" required>
+              </div>
+              <div class="col-md-4">
+                <textarea name="notes" class="form-control" placeholder="Notes (optional)"></textarea>
+              </div>
+              <div class="col-md-2">
+                <button type="submit" class="btn btn-success w-100">Add Pup</button>
+              </div>
+            </div>
+          </form>
+        </td>
+      </tr>
+
+      <!-- Pup Table -->
+      <tr>
+        <td colspan="10">
+          {% if record.pups %}
+          <h6 class="mt-3">🐭 Pup List for Breeding ID {{ record.id }}</h6>
+          <table class="table table-sm table-bordered mt-2">
+            <thead class="table-light">
+              <tr>
+                <th>ID</th>
+                <th>Sex</th>
+                <th>Genotype</th>
+                <th>Birth Date</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for pup in record.pups %}
+              <tr>
+                <td>{{ pup.id }}</td>
+                <td>{{ pup.sex }}</td>
+                <td>{{ pup.genotype or '-' }}</td>
+                <td>{{ pup.birth_date }}</td>
+                <td>{{ pup.notes or '-' }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% else %}
+            <div class="text-muted text-center">No pups added yet for Breeding ID {{ record.id }}</div>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

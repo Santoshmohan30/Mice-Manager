@@ -1,0 +1,45 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="glass-card">
+  <h3>Add Breeding Pair</h3>
+  <form method="POST">
+    <div class="mb-3">
+      <label>Male Mouse ID</label>
+      <input type="number" name="male_id" class="form-control" required>
+    </div>
+
+    <div class="mb-3">
+      <label>Female Mouse ID</label>
+      <input type="number" name="female_id" class="form-control" required>
+    </div>
+
+    <div class="mb-3">
+      <label>Pair Date</label>
+      <input type="date" name="pair_date" class="form-control" required>
+    </div>
+
+    <div class="mb-3">
+      <label>Litter Count</label>
+      <input type="number" name="litter_count" class="form-control">
+    </div>
+
+    <div class="mb-3">
+      <label>Litter Date</label>
+      <input type="date" name="litter_date" class="form-control">
+    </div>
+
+    <div class="mb-3">
+      <label>Weaning Date</label>
+      <input type="date" name="wean_date" class="form-control">
+    </div>
+
+    <div class="mb-3">
+      <label>Notes</label>
+      <textarea name="notes" class="form-control" rows="3"></textarea>
+    </div>
+
+    <button type="submit" class="btn btn-success">Save</button>
+    <a href="{{ url_for('breeding_log') }}" class="btn btn-secondary">Cancel</a>
+  </form>
+</div>
+{% endblock %}

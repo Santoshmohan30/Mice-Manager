@@ -1,0 +1,16 @@
+{% extends 'layout.html' %}
+{% block content %}
+<h2>Procedure Log</h2>
+<form method="POST">
+  <label>Mouse ID:</label><input name="mouse_id"><br>
+  <label>Type:</label><input name="type"><br>
+  <label>Date:</label><input name="date" type="date"><br>
+  <label>Notes:</label><textarea name="notes"></textarea><br>
+  <button type="submit">Log Procedure</button>
+</form>
+<ul>
+  {% for p in procedures %}
+    <li>{{ p.type }} on {{ p.date }} for Mouse {{ p.mouse_id }}</li>
+  {% endfor %}
+</ul>
+{% endblock %}

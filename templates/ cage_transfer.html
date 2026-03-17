@@ -1,0 +1,8 @@
+{% extends 'layout.html' %}
+{% block content %}
+<h2>Cage Transfer for Mouse {{ mouse.id }}</h2>
+<form method="POST">
+  <label>New Cage:</label><input name="new_cage"><br>
+  <button type="submit">Transfer</button>
+</form>
+{% endblock %}

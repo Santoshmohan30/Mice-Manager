@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Mouse Colony Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: 'Segoe UI', sans-serif;
+      background: url('{{ url_for('static', filename='img/bg.jpg') }}') no-repeat center center fixed;
+      background-size: cover;
+      color: #fff;
+    }
+
+    .glass-card {
+      background: rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(20px);
+      border-radius: 20px;
+      padding: 30px;
+      margin: 40px auto;
+      width: 95%;
+      max-width: 1200px;
+      box-shadow: 0 4px 30px rgba(0,0,0,0.3);
+    }
+
+    h3 {
+      font-weight: bold;
+    }
+
+    .btn {
+      border-radius: 10px !important;
+      font-weight: 500;
+    }
+
+    .btn-sm {
+      padding: 8px 16px !important;
+      font-size: 14px !important;
+    }
+
+    .btn-success { background: #00d26a; border: none; }
+    .btn-primary { background: #007aff; border: none; }
+    .btn-warning { background: #ffc107; border: none; color: #000; }
+    .btn-danger  { background: #ff4d4f; border: none; }
+
+    table { background-color: transparent; color: #fff; }
+    thead { background: rgba(255, 255, 255, 0.1); }
+
+    .strain-header {
+      margin-top: 40px;
+      font-size: 1.1rem;
+      font-weight: 500;
+      padding: 8px 20px;
+      background: rgba(255, 255, 255, 0.12);
+      backdrop-filter: blur(12px);
+      border-radius: 30px;
+      width: fit-content;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      color: #fff;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="glass-card">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <h3> Mouse Colony Dashboard</h3>
+      <a href="{{ url_for('add_strain') }}" class="btn btn-primary btn-sm">➕ Add New Strain Sheet</a>
+    </div>
+
+    <p><strong>Total Mice:</strong> {{ total_mice }}</p>
+
+    {% for strain, mice in grouped_mice.items() %}
+      <div class="d-flex justify-content-center mb-3">
+        <div class="strain-header">{{ strain }} ({{ mice|length }} mice)</div>
+      </div>
+      <table class="table table-hover mt-3">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Gender</th>
+            <th>Genotype</th>
+            <th>DOB</th>
+            <th>Cage</th>
+            <th>Training</th>
+            <th>Project</th>
+            <th>Notes</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for mouse in mice %}
+          <tr>
+            <td>{{ mouse.id }}</td>
+            <td>{{ mouse.gender }}</td>
+            <td>{{ mouse.genotype }}</td>
+            <td>{{ mouse.dob }}</td>
+            <td>{{ mouse.cage }}</td>
+            <td>{{ 'Yes' if mouse.training else 'No' }}</td>
+            <td>{{ mouse.project }}</td>
+            <td>{{ mouse.notes }}</td>
+            <td>
+              <div class="d-flex gap-2">
+                <a href="{{ url_for('edit_mouse', id=mouse.id) }}" class="btn btn-warning btn-sm">✏️ Edit</a>
+                <form method="POST" action="{{ url_for('delete_mouse', id=mouse.id) }}" onsubmit="return confirm('Delete this mouse?')">
+                  <button type="submit" class="btn btn-danger btn-sm">🗑️ Delete</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endfor %}
+  </div>
+
+</body>
+</html>
