@@ -1,0 +1,126 @@
+{% extends "layout.html" %}
+{% block title %}Dashboard · Mice Manager{% endblock %}
+{% block content %}
+<div class="section-header">
+  <div>
+    <h2>Dashboard</h2>
+    <p class="subtitle">A working overview of your colony and the key places your team needs every day.</p>
+  </div>
+  <div class="actions">
+    <a href="{{ url_for('add_mouse') }}" class="button">Add Mouse</a>
+    <a href="{{ url_for('add_breeding') }}" class="button secondary">Add Breeding Pair</a>
+    <a href="{{ url_for('calendar_view') }}" class="button secondary">Open Calendar</a>
+  </div>
+</div>
+
+<div class="grid stats-grid">
+  <div class="stats-card">
+    <p class="stats-label">Total mice</p>
+    <p class="stats-value">{{ stats.total_mice }}</p>
+  </div>
+  <div class="stats-card">
+    <p class="stats-label">Active strains</p>
+    <p class="stats-value">{{ stats.strains }}</p>
+  </div>
+  <div class="stats-card">
+    <p class="stats-label">Training mice</p>
+    <p class="stats-value">{{ stats.training_mice }}</p>
+  </div>
+  <div class="stats-card">
+    <p class="stats-label">Breeding records</p>
+    <p class="stats-value">{{ stats.active_breedings }}</p>
+  </div>
+  <div class="stats-card">
+    <p class="stats-label">Calendar events</p>
+    <p class="stats-value">{{ stats.calendar_events }}</p>
+  </div>
+</div>
+
+<div class="split-layout">
+  <section class="card">
+    <div class="section-header">
+      <div>
+        <h3>Colony by strain</h3>
+        <p class="subtitle">Every dashboard action below is wired to a real route now.</p>
+      </div>
+      <a href="{{ url_for('mice_list') }}" class="button secondary">Full List</a>
+    </div>
+
+    {% if grouped_mice %}
+      {% for strain, mice in grouped_mice.items() %}
+      <div class="card" style="margin-bottom: 14px;">
+        <div class="section-header" style="margin-bottom: 10px;">
+          <div>
+            <h3>{{ strain }}</h3>
+            <p class="subtitle">{{ mice|length }} mice</p>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Group</th>
+                <th>Gender</th>
+                <th>Genotype</th>
+                <th>DOB</th>
+                <th>Cage</th>
+                <th>Rack</th>
+                <th>Training</th>
+                <th>Project</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for mouse in mice %}
+              <tr>
+                <td>{{ mouse.id }}</td>
+                <td>{{ "Strain" if mouse.group_type == "genetic_strain" else "Procedure" }}</td>
+                <td>{{ mouse.gender }}</td>
+                <td>{{ mouse.genotype }}</td>
+                <td>{{ mouse.dob }}</td>
+                <td>{{ mouse.cage }}</td>
+                <td>{{ mouse.rack_location or "—" }}</td>
+                <td>{{ "Yes" if mouse.training else "No" }}</td>
+                <td>{{ mouse.project or "—" }}</td>
+                <td>
+                  <div class="actions">
+                    <a href="{{ url_for('edit_mouse', id=mouse.id) }}" class="button warning">Edit</a>
+                    <a href="{{ url_for('cage_transfer', mouse_id=mouse.id) }}" class="button secondary">Transfer</a>
+                  </div>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {% endfor %}
+    {% else %}
+    <p class="muted">No mice are in the database yet. Add your first record to start building the colony.</p>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <div class="section-header">
+      <div>
+        <h3>Upcoming events</h3>
+        <p class="subtitle">Quick view for reminders and lab milestones.</p>
+      </div>
+    </div>
+    {% if recent_events %}
+      <div class="grid">
+        {% for event in recent_events %}
+        <div class="card">
+          <strong>{{ event.title }}</strong>
+          <p class="subtitle">{{ event.date }}{% if event.category %} · {{ event.category }}{% endif %}</p>
+          <p>{{ event.notes or "No notes added." }}</p>
+        </div>
+        {% endfor %}
+      </div>
+    {% else %}
+    <p class="muted">No events scheduled yet.</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

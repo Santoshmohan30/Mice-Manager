@@ -1,0 +1,43 @@
+{% extends "layout.html" %}
+{% block title %}Pups · Mice Manager{% endblock %}
+{% block content %}
+<div class="section-header">
+  <div>
+    <h2>Pups</h2>
+    <p class="subtitle">Monitor growth and identify litters that are ready for weaning.</p>
+  </div>
+</div>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Breeding ID</th>
+        <th>Sex</th>
+        <th>Genotype</th>
+        <th>Birth Date</th>
+        <th>Status</th>
+        <th>Notes</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for pup in pups %}
+      <tr>
+        <td>{{ pup.id }}</td>
+        <td>{{ pup.breeding_id }}</td>
+        <td>{{ pup.sex }}</td>
+        <td>{{ pup.genotype or "—" }}</td>
+        <td>{{ pup.birth_date.isoformat() }}</td>
+        <td>{{ "Weaning Due" if pup.weaning_due else "Growing" }}</td>
+        <td>{{ pup.notes or "—" }}</td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="7" class="muted">No pup records yet.</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

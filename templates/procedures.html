@@ -1,0 +1,61 @@
+{% extends "layout.html" %}
+{% block title %}Procedures · Mice Manager{% endblock %}
+{% block content %}
+<div class="section-header">
+  <div>
+    <h2>Procedures</h2>
+    <p class="subtitle">Log surgeries, injections, training procedures, and follow-up notes.</p>
+  </div>
+</div>
+
+<div class="split-layout">
+  <section class="card">
+    <h3 style="margin-bottom: 12px;">Log Procedure</h3>
+    <form method="POST">
+      <div class="form-grid">
+        <div class="field">
+          <label for="mouse_id">Mouse</label>
+          <select id="mouse_id" name="mouse_id" required>
+            <option value="">Select mouse</option>
+            {% for mouse in mice %}
+            <option value="{{ mouse.id }}">#{{ mouse.id }} · {{ mouse.strain }} · Cage {{ mouse.cage }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="type">Procedure type</label>
+          <input id="type" name="type" placeholder="Surgery, Injection, Training" required>
+        </div>
+        <div class="field">
+          <label for="date">Date</label>
+          <input id="date" name="date" type="date" required>
+        </div>
+        <div class="field full">
+          <label for="notes">Notes</label>
+          <textarea id="notes" name="notes"></textarea>
+        </div>
+      </div>
+      <div class="actions" style="margin-top: 16px;">
+        <button type="submit" class="button success">Save Procedure</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="card">
+    <h3 style="margin-bottom: 12px;">Recent Procedures</h3>
+    {% if procedures %}
+      <div class="grid">
+        {% for procedure in procedures %}
+        <div class="card">
+          <strong>{{ procedure.type }}</strong>
+          <p class="subtitle">{{ procedure.date }} · Mouse #{{ procedure.mouse_id }}</p>
+          <p>{{ procedure.notes or "No notes added." }}</p>
+        </div>
+        {% endfor %}
+      </div>
+    {% else %}
+    <p class="muted">No procedures have been logged yet.</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

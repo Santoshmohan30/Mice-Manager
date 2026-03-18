@@ -1,0 +1,31 @@
+{% extends "layout.html" %}
+{% block title %}Cage Transfer · Mice Manager{% endblock %}
+{% block content %}
+<div class="section-header">
+  <div>
+    <h2>Cage Transfer</h2>
+    <p class="subtitle">Move Mouse #{{ mouse.id }} to a new cage and log the change.</p>
+  </div>
+</div>
+
+<form method="POST">
+  <div class="form-grid">
+    <div class="field">
+      <label>Mouse</label>
+      <input value="#{{ mouse.id }} · {{ mouse.strain }} · Cage {{ mouse.cage }}" disabled>
+    </div>
+    <div class="field">
+      <label for="new_cage">New cage</label>
+      <input id="new_cage" name="new_cage" required>
+    </div>
+    <div class="field">
+      <label for="date">Transfer date</label>
+      <input id="date" name="date" type="date" value="{{ now().strftime('%Y-%m-%d') }}">
+    </div>
+  </div>
+  <div class="actions" style="margin-top: 16px;">
+    <button type="submit" class="button success">Save Transfer</button>
+    <a href="{{ url_for('mice_list') }}" class="button secondary">Back</a>
+  </div>
+</form>
+{% endblock %}

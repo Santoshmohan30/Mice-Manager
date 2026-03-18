@@ -1,0 +1,64 @@
+{% extends "layout.html" %}
+{% block title %}Users · Mice Manager{% endblock %}
+{% block content %}
+<div class="section-header">
+  <div>
+    <h2>User Management</h2>
+    <p class="subtitle">Create separate logins for different people and reset passwords from one admin screen.</p>
+  </div>
+</div>
+
+<div class="split-layout">
+  <section class="card">
+    <h3 style="margin-bottom: 12px;">Create User</h3>
+    <form method="POST">
+      <div class="form-grid">
+        <div class="field">
+          <label for="username">Username</label>
+          <input id="username" name="username" required>
+        </div>
+        <div class="field">
+          <label for="role">Role</label>
+          <select id="role" name="role">
+            <option value="viewer">viewer</option>
+            <option value="tech">tech</option>
+            <option value="admin">admin</option>
+          </select>
+        </div>
+        <div class="field full">
+          <label for="password">Temporary password</label>
+          <input id="password" name="password" type="password" required>
+        </div>
+      </div>
+      <div class="actions" style="margin-top: 16px;">
+        <button type="submit" class="button success">Create User</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="card">
+    <h3 style="margin-bottom: 12px;">Existing Users</h3>
+    <div class="grid">
+      {% for user in users %}
+      <div class="card">
+        <div class="section-header" style="margin-bottom: 10px;">
+          <div>
+            <strong>{{ user.username }}</strong>
+            <p class="subtitle">{{ user.role }}</p>
+          </div>
+        </div>
+        <form method="POST" action="{{ url_for('reset_user_password', user_id=user.id) }}">
+          <div class="field">
+            <label for="password-{{ user.id }}">Reset password</label>
+            <input id="password-{{ user.id }}" name="password" type="password" minlength="8" required>
+          </div>
+          <div class="actions" style="margin-top: 12px;">
+            <button type="submit" class="button secondary">Update Password</button>
+          </div>
+        </form>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+</div>
+{% endblock %}

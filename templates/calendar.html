@@ -1,0 +1,69 @@
+{% extends "layout.html" %}
+{% block title %}Calendar · Mice Manager{% endblock %}
+{% block content %}
+<div class="section-header">
+  <div>
+    <h2>Calendar</h2>
+    <p class="subtitle">Capture breeding deadlines, weaning reminders, and lab events.</p>
+  </div>
+</div>
+
+<div class="split-layout">
+  <section class="card">
+    <h3 style="margin-bottom: 12px;">Add Event</h3>
+    <form method="POST" action="{{ url_for('add_calendar_event') }}">
+      <div class="form-grid">
+        <div class="field">
+          <label for="title">Title</label>
+          <input id="title" name="title" required>
+        </div>
+        <div class="field">
+          <label for="date">Date</label>
+          <input id="date" name="date" type="date" required>
+        </div>
+        <div class="field">
+          <label for="category">Category</label>
+          <input id="category" name="category" placeholder="Weaning, Surgery, Reminder">
+        </div>
+        <div class="field">
+          <label for="notify">Notify email</label>
+          <input id="notify" name="notify" type="email" placeholder="name@buffalo.edu">
+        </div>
+        <div class="field full">
+          <label for="notes">Notes</label>
+          <textarea id="notes" name="notes"></textarea>
+        </div>
+      </div>
+      <div class="actions" style="margin-top: 16px;">
+        <button type="submit" class="button success">Add Event</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="card">
+    <h3 style="margin-bottom: 12px;">Upcoming Events</h3>
+    {% if events %}
+      <div class="grid">
+        {% for event in events %}
+        <div class="card">
+          <div class="section-header" style="margin-bottom: 10px;">
+            <div>
+              <strong>{{ event.title }}</strong>
+              <p class="subtitle">{{ event.date }}{% if event.category %} · {{ event.category }}{% endif %}</p>
+            </div>
+            {% if g.user.role in ['admin', 'tech'] %}
+            <form method="POST" action="{{ url_for('delete_calendar_event', event_id=event.id) }}" class="inline-form" onsubmit="return confirm('Delete this event?');">
+              <button type="submit" class="button danger">Delete</button>
+            </form>
+            {% endif %}
+          </div>
+          <p>{{ event.notes or "No notes added." }}</p>
+        </div>
+        {% endfor %}
+      </div>
+    {% else %}
+    <p class="muted">No calendar events yet.</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

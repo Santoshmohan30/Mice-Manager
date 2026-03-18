@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Mice Manager{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="site-header">
+      <div class="site-title-row">
+        <div>
+          <h1 class="brand-title">Mice Manager</h1>
+          <p class="brand-subtitle">Track colonies, breeding, procedures, and scheduling from one place.</p>
+        </div>
+        {% if g.user %}
+        <div class="top-actions">
+          <span class="chip">{{ g.user.username }} · {{ g.user.role }}</span>
+          <form method="POST" action="{{ url_for('logout') }}" class="inline-form">
+            <button type="submit" class="button secondary">Sign Out</button>
+          </form>
+        </div>
+        {% endif %}
+      </div>
+
+      {% if g.user %}
+      <nav class="nav">
+        <a href="{{ url_for('dashboard') }}" class="{% if request.endpoint == 'dashboard' %}active{% endif %}">Dashboard</a>
+        <a href="{{ url_for('mice_list') }}" class="{% if request.endpoint in ['mice_list', 'add_mouse', 'edit_mouse', 'cage_transfer'] %}active{% endif %}">Mice</a>
+        <a href="{{ url_for('analytics') }}" class="{% if request.endpoint == 'analytics' %}active{% endif %}">Analytics</a>
+        <a href="{{ url_for('breeding_log') }}" class="{% if request.endpoint in ['breeding_log', 'add_breeding', 'pup_list'] %}active{% endif %}">Breeding</a>
+        <a href="{{ url_for('procedures') }}" class="{% if request.endpoint == 'procedures' %}active{% endif %}">Procedures</a>
+        <a href="{{ url_for('calendar_view') }}" class="{% if request.endpoint == 'calendar_view' %}active{% endif %}">Calendar</a>
+        <a href="{{ url_for('export_page') }}" class="{% if request.endpoint == 'export_page' %}active{% endif %}">Export</a>
+        {% if g.user.role == 'admin' %}
+        <a href="{{ url_for('backups') }}" class="{% if request.endpoint in ['backups', 'create_backup', 'download_backup', 'restore_backup'] %}active{% endif %}">Recovery</a>
+        <a href="{{ url_for('audit_log') }}" class="{% if request.endpoint == 'audit_log' %}active{% endif %}">Audit</a>
+        <a href="{{ url_for('users') }}" class="{% if request.endpoint in ['users', 'reset_user_password'] %}active{% endif %}">Users</a>
+        {% endif %}
+      </nav>
+      {% endif %}
+    </header>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+      <ul class="flash-messages">
+        {% for category, message in messages %}
+        <li class="flash flash-{{ category }}">{{ message }}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    {% endwith %}
+
+    <main class="panel">
+      {% block content %}{% endblock %}
+    </main>
+
+    <div class="footer">© {{ now().year }} Mice Manager</div>
+  </div>
+</body>
+</html>

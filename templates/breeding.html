@@ -1,0 +1,120 @@
+{% extends "layout.html" %}
+{% block title %}Breeding · Mice Manager{% endblock %}
+{% block content %}
+<div class="section-header">
+  <div>
+    <h2>Breeding</h2>
+    <p class="subtitle">Track pairings, litter growth, weaning, and pup follow-up in one place.</p>
+  </div>
+  <div class="actions">
+    <a href="{{ url_for('add_breeding') }}" class="button">Add Breeding Pair</a>
+    <a href="{{ url_for('pup_list') }}" class="button secondary">Open Pups</a>
+  </div>
+</div>
+
+{% if records %}
+  {% for record in records %}
+  <section class="card" style="margin-bottom: 16px;">
+    <div class="section-header">
+      <div>
+        <h3>Breeding #{{ record.id }}</h3>
+        <p class="subtitle">Male #{{ record.male_id }} × Female #{{ record.female_id }}</p>
+      </div>
+      <div class="actions">
+        <span class="chip">{{ record.status }}</span>
+        <span class="chip">Wean by {{ record.weaning_date }}</span>
+        {% if g.user.role in ['admin', 'tech'] %}
+        <form method="POST" action="{{ url_for('delete_breeding', id=record.id) }}" class="inline-form" onsubmit="return confirm('Delete this breeding record?');">
+          <button type="submit" class="button danger">Delete</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+    <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+      <div class="card">
+        <strong>Pair date</strong>
+        <p>{{ record.pair_date }}</p>
+      </div>
+      <div class="card">
+        <strong>Litter count</strong>
+        <p>{{ record.litter_count or "—" }}</p>
+      </div>
+      <div class="card">
+        <strong>Litter date</strong>
+        <p>{{ record.litter_date or "—" }}</p>
+      </div>
+      <div class="card">
+        <strong>Notes</strong>
+        <p>{{ record.notes or "No notes added." }}</p>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top: 14px;">
+      <h3 style="margin-bottom: 12px;">Add Pup</h3>
+      <form method="POST" action="{{ url_for('add_pup', breeding_id=record.id) }}">
+        <div class="form-grid">
+          <div class="field">
+            <label for="sex-{{ record.id }}">Sex</label>
+            <select id="sex-{{ record.id }}" name="sex" required>
+              <option value="M">M</option>
+              <option value="F">F</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="genotype-{{ record.id }}">Genotype</label>
+            <input id="genotype-{{ record.id }}" name="genotype">
+          </div>
+          <div class="field">
+            <label for="birth_date-{{ record.id }}">Birth date</label>
+            <input id="birth_date-{{ record.id }}" name="birth_date" type="date" required>
+          </div>
+          <div class="field full">
+            <label for="notes-{{ record.id }}">Notes</label>
+            <textarea id="notes-{{ record.id }}" name="notes"></textarea>
+          </div>
+        </div>
+        <div class="actions" style="margin-top: 12px;">
+          <button type="submit" class="button success">Add Pup</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="card" style="margin-top: 14px;">
+      <h3 style="margin-bottom: 12px;">Pups</h3>
+      {% if record.pups %}
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Sex</th>
+              <th>Genotype</th>
+              <th>Birth Date</th>
+              <th>Status</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for pup in record.pups %}
+            <tr>
+              <td>{{ pup.id }}</td>
+              <td>{{ pup.sex }}</td>
+              <td>{{ pup.genotype or "—" }}</td>
+              <td>{{ pup.birth_date.isoformat() }}</td>
+              <td>{{ "Weaning Due" if pup.weaning_due else "Growing" }}</td>
+              <td>{{ pup.notes or "—" }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="muted">No pups linked to this record yet.</p>
+      {% endif %}
+    </div>
+  </section>
+  {% endfor %}
+{% else %}
+<p class="muted">No breeding records yet.</p>
+{% endif %}
+{% endblock %}

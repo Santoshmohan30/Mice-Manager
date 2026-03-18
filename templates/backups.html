@@ -1,0 +1,87 @@
+{% extends "layout.html" %}
+{% block title %}Recovery · Mice Manager{% endblock %}
+{% block content %}
+<div class="section-header">
+  <div>
+    <h2>Backup and Recovery</h2>
+    <p class="subtitle">Create emergency backups, download them, and restore the live SQLite database if something breaks.</p>
+  </div>
+</div>
+
+<div class="split-layout">
+  <section class="card">
+    <h3 style="margin-bottom: 12px;">Create Backup</h3>
+    <p class="subtitle">Live database: <code>{{ live_database_path }}</code></p>
+    <form method="POST" action="{{ url_for('create_backup') }}">
+      <div class="field">
+        <label for="label">Backup label</label>
+        <input id="label" name="label" placeholder="manual, before-interview, weekly-check">
+      </div>
+      <div class="actions" style="margin-top: 16px;">
+        <button type="submit" class="button success">Create Backup Now</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="card">
+    <h3 style="margin-bottom: 12px;">How Recovery Works</h3>
+    <div class="grid">
+      <div class="card">
+        <strong>1. Backup</strong>
+        <p>Create a snapshot copy of the live database.</p>
+      </div>
+      <div class="card">
+        <strong>2. Download</strong>
+        <p>Keep a copy on your computer, cloud drive, or external storage.</p>
+      </div>
+      <div class="card">
+        <strong>3. Restore</strong>
+        <p>If the app crashes or data is damaged, restore any saved backup. The app also makes a safety backup before restoring.</p>
+      </div>
+    </div>
+  </section>
+</div>
+
+<section class="card" style="margin-top: 18px;">
+  <div class="section-header">
+    <div>
+      <h3>Available Backups</h3>
+      <p class="subtitle">Newest first.</p>
+    </div>
+  </div>
+
+  {% if backups %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>File</th>
+          <th>Modified</th>
+          <th>Size</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for backup in backups %}
+        <tr>
+          <td>{{ backup.name }}</td>
+          <td>{{ backup.modified_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+          <td>{{ backup.size_kb }} KB</td>
+          <td>
+            <div class="actions">
+              <a href="{{ url_for('download_backup', backup_name=backup.name) }}" class="button secondary">Download</a>
+              <form method="POST" action="{{ url_for('restore_backup', backup_name=backup.name) }}" class="inline-form" onsubmit="return confirm('Restore this backup to the live database?');">
+                <button type="submit" class="button danger">Restore</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">No backups yet. Create your first one now.</p>
+  {% endif %}
+</section>
+{% endblock %}

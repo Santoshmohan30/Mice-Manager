@@ -1,0 +1,13 @@
+{% extends "layout.html" %}
+{% block title %}Not Found · Mice Manager{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>Page Not Found</h2>
+  <p class="subtitle">The page you requested does not exist or the link is outdated.</p>
+  {% if g.user %}
+  <a href="{{ url_for('dashboard') }}" class="button">Back to Dashboard</a>
+  {% else %}
+  <a href="{{ url_for('login') }}" class="button">Go to Login</a>
+  {% endif %}
+</div>
+{% endblock %}

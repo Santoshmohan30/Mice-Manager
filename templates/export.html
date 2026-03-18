@@ -1,0 +1,33 @@
+{% extends "layout.html" %}
+{% block title %}Export · Mice Manager{% endblock %}
+{% block content %}
+<div class="section-header">
+  <div>
+    <h2>Export Data</h2>
+    <p class="subtitle">Download your records as CSV files for reporting, backup, or analysis.</p>
+  </div>
+</div>
+
+<div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
+  <a href="{{ url_for('export_csv', table='mice') }}" class="card">
+    <strong>Mice</strong>
+    <p class="subtitle">All colony records with project and training fields.</p>
+  </a>
+  <a href="{{ url_for('export_csv', table='breeding') }}" class="card">
+    <strong>Breeding</strong>
+    <p class="subtitle">Pairing, litter, and weaning data.</p>
+  </a>
+  <a href="{{ url_for('export_csv', table='pups') }}" class="card">
+    <strong>Pups</strong>
+    <p class="subtitle">Linked pup records and weaning status.</p>
+  </a>
+  <a href="{{ url_for('export_csv', table='procedures') }}" class="card">
+    <strong>Procedures</strong>
+    <p class="subtitle">Mouse procedures and notes.</p>
+  </a>
+  <a href="{{ url_for('export_csv', table='calendar') }}" class="card">
+    <strong>Calendar</strong>
+    <p class="subtitle">Scheduled reminders and lab events.</p>
+  </a>
+</div>
+{% endblock %}

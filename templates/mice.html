@@ -1,0 +1,138 @@
+{% extends "layout.html" %}
+{% block title %}Mice · Mice Manager{% endblock %}
+{% block content %}
+<div class="section-header">
+  <div>
+    <h2>Mice</h2>
+    <p class="subtitle">Filter, review, edit, and cleanly manage your colony records.</p>
+  </div>
+  <div class="actions">
+    <a href="{{ url_for('add_mouse') }}" class="button">Add Mouse</a>
+    <a href="{{ url_for('export_csv', table='mice') }}" class="button secondary">Download CSV</a>
+  </div>
+</div>
+
+<form method="GET">
+  <div class="form-grid">
+    <div class="field">
+      <label for="strain">Strain</label>
+      <select id="strain" name="strain">
+        <option value="">All</option>
+        {% for s in strains %}
+        <option value="{{ s }}" {% if request.args.get('strain') == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="group_type">Group type</label>
+      <select id="group_type" name="group_type">
+        <option value="">All</option>
+        {% for group_type in group_types %}
+        <option value="{{ group_type }}" {% if request.args.get('group_type') == group_type %}selected{% endif %}>
+          {{ "True strain" if group_type == "genetic_strain" else "Procedure cohort" }}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field checkbox-field">
+      <input id="include_archived" name="include_archived" type="checkbox" value="1" {% if include_archived %}checked{% endif %}>
+      <label for="include_archived">Show archived mice</label>
+    </div>
+    <div class="field">
+      <label for="gender">Gender</label>
+      <select id="gender" name="gender">
+        <option value="">All</option>
+        {% for g in genders %}
+        <option value="{{ g }}" {% if request.args.get('gender') == g %}selected{% endif %}>{{ g }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="genotype">Genotype</label>
+      <select id="genotype" name="genotype">
+        <option value="">All</option>
+        {% for g in genotypes %}
+        <option value="{{ g }}" {% if request.args.get('genotype') == g %}selected{% endif %}>{{ g }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="dob_start">DOB start</label>
+      <input id="dob_start" name="dob_start" type="date" value="{{ request.args.get('dob_start', '') }}">
+    </div>
+    <div class="field">
+      <label for="dob_end">DOB end</label>
+      <input id="dob_end" name="dob_end" type="date" value="{{ request.args.get('dob_end', '') }}">
+    </div>
+    <div class="field">
+      <label for="sort_dob">Sort DOB</label>
+      <select id="sort_dob" name="sort_dob">
+        <option value="">Newest entries</option>
+        <option value="asc" {% if request.args.get('sort_dob') == 'asc' %}selected{% endif %}>Oldest DOB first</option>
+        <option value="desc" {% if request.args.get('sort_dob') == 'desc' %}selected{% endif %}>Newest DOB first</option>
+      </select>
+    </div>
+  </div>
+  <div class="actions" style="margin-top: 16px;">
+    <button type="submit" class="button">Apply Filters</button>
+    <a href="{{ url_for('mice_list') }}" class="button secondary">Reset</a>
+  </div>
+</form>
+
+<div class="table-wrap" style="margin-top: 20px;">
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Strain</th>
+        <th>Group</th>
+        <th>Gender</th>
+        <th>Genotype</th>
+        <th>DOB</th>
+        <th>Cage</th>
+        <th>Rack</th>
+        <th>Training</th>
+        <th>Project</th>
+        <th>Notes</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for mouse in mice %}
+      <tr>
+        <td>{{ mouse.id }}</td>
+        <td>{{ mouse.strain }}</td>
+        <td>{{ "Strain" if mouse.group_type == "genetic_strain" else "Procedure" }}</td>
+        <td>{{ mouse.gender }}</td>
+        <td>{{ mouse.genotype }}</td>
+        <td>{{ mouse.dob }}</td>
+        <td>{{ mouse.cage }}</td>
+        <td>{{ mouse.rack_location or "—" }}</td>
+        <td>{{ "Yes" if mouse.training else "No" }}</td>
+        <td>{{ mouse.project or "—" }}</td>
+        <td>{{ mouse.notes or "—" }}</td>
+        <td>
+          <div class="actions">
+            <a href="{{ url_for('edit_mouse', id=mouse.id) }}" class="button warning">Edit</a>
+            <a href="{{ url_for('cage_transfer', mouse_id=mouse.id) }}" class="button secondary">Transfer</a>
+            {% if g.user.role in ['admin', 'tech'] and mouse.is_active %}
+            <form method="POST" action="{{ url_for('delete_mouse', id=mouse.id) }}" class="inline-form" onsubmit="return confirm('Delete this mouse?');">
+              <button type="submit" class="button danger">Archive</button>
+            </form>
+            {% elif g.user.role in ['admin', 'tech'] %}
+            <form method="POST" action="{{ url_for('restore_mouse', id=mouse.id) }}" class="inline-form" onsubmit="return confirm('Restore this mouse?');">
+              <button type="submit" class="button success">Restore</button>
+            </form>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="12" class="muted">No mice matched the current filters.</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

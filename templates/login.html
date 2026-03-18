@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login · Mice Manager</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <div class="login-page">
+    <div class="login-shell">
+      <h1>Mice Manager</h1>
+      <p class="subtitle">Secure colony management for your team.</p>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <ul class="flash-messages">
+          {% for category, message in messages %}
+          <li class="flash flash-{{ category }}">{{ message }}</li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+      {% endwith %}
+
+      <form method="POST">
+        <div class="field">
+          <label for="username">Username</label>
+          <input id="username" name="username" required>
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" required>
+        </div>
+        <button type="submit" class="button">Sign In</button>
+      </form>
+
+      {% if default_hint %}
+      <div class="card" style="margin-top: 16px;">
+        <strong>First login</strong>
+        <p class="subtitle">Default admin user: <code>{{ default_admin_name }}</code></p>
+        <p class="subtitle">Default password: <code>ChangeMe123!</code></p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</body>
+</html>

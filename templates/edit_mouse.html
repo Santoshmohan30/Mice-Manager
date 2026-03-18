@@ -1,0 +1,75 @@
+{% extends "layout.html" %}
+{% block title %}Edit Mouse · Mice Manager{% endblock %}
+{% block content %}
+<div class="section-header">
+  <div>
+    <h2>Edit Mouse #{{ mouse.id }}</h2>
+    <p class="subtitle">Update colony details without breaking linked records.</p>
+  </div>
+</div>
+
+<form method="POST">
+  <div class="form-grid">
+    <div class="field">
+      <label for="group_type">Group type</label>
+      <select id="group_type" name="group_type" required>
+        <option value="genetic_strain" {% if mouse.group_type == 'genetic_strain' %}selected{% endif %}>True genetic strain</option>
+        <option value="procedure_cohort" {% if mouse.group_type == 'procedure_cohort' %}selected{% endif %}>Surgery / injection cohort</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="strain">Strain</label>
+      <input id="strain" name="strain" value="{{ mouse.strain }}" list="mouse-labels" required>
+    </div>
+    <div class="field">
+      <label for="gender">Gender</label>
+      <select id="gender" name="gender" required>
+        <option value="MALE" {% if mouse.gender == 'MALE' %}selected{% endif %}>MALE</option>
+        <option value="FEMALE" {% if mouse.gender == 'FEMALE' %}selected{% endif %}>FEMALE</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="genotype">Genotype</label>
+      <input id="genotype" name="genotype" value="{{ mouse.genotype }}" required>
+    </div>
+    <div class="field">
+      <label for="dob">Date of birth</label>
+      <input id="dob" name="dob" type="date" value="{{ mouse.dob }}" required>
+    </div>
+    <div class="field">
+      <label for="cage">Cage</label>
+      <input id="cage" name="cage" value="{{ mouse.cage }}" required>
+    </div>
+    <div class="field">
+      <label for="rack_location">Rack location</label>
+      <input id="rack_location" name="rack_location" value="{{ mouse.rack_location or '' }}" placeholder="Rack A / Shelf 2">
+    </div>
+    <div class="field">
+      <label for="project">Project</label>
+      <input id="project" name="project" value="{{ mouse.project or '' }}">
+    </div>
+    <div class="checkbox-field">
+      <input id="training" name="training" type="checkbox" {% if mouse.training %}checked{% endif %}>
+      <label for="training">Training mouse</label>
+    </div>
+    <div class="field full">
+      <label for="notes">Notes</label>
+      <textarea id="notes" name="notes">{{ mouse.notes or '' }}</textarea>
+    </div>
+  </div>
+  <div class="actions" style="margin-top: 16px;">
+    <button type="submit" class="button success">Update Mouse</button>
+    <a href="{{ url_for('cage_transfer', mouse_id=mouse.id) }}" class="button secondary">Log Cage Transfer</a>
+    <a href="{{ url_for('mice_list') }}" class="button secondary">Back</a>
+  </div>
+</form>
+
+<datalist id="mouse-labels">
+  {% for label in label_options.genetic_strain %}
+  <option value="{{ label }}"></option>
+  {% endfor %}
+  {% for label in label_options.procedure_cohort %}
+  <option value="{{ label }}"></option>
+  {% endfor %}
+</datalist>
+{% endblock %}

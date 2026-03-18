@@ -1,0 +1,23 @@
+{% extends "layout.html" %}
+{% block title %}Add Strain · Mice Manager{% endblock %}
+{% block content %}
+<div class="section-header">
+  <div>
+    <h2>Add Strain Shortcut</h2>
+    <p class="subtitle">Create a strain name and jump straight into a new mouse entry.</p>
+  </div>
+</div>
+
+<form method="POST">
+  <div class="form-grid">
+    <div class="field">
+      <label for="strain">Strain name</label>
+      <input id="strain" name="strain" required>
+    </div>
+  </div>
+  <div class="actions" style="margin-top: 16px;">
+    <button type="submit" class="button success">Continue</button>
+    <a href="{{ url_for('dashboard') }}" class="button secondary">Cancel</a>
+  </div>
+</form>
+{% endblock %}

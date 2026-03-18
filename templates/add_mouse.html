@@ -1,0 +1,74 @@
+{% extends "layout.html" %}
+{% block title %}Add Mouse · Mice Manager{% endblock %}
+{% block content %}
+<div class="section-header">
+  <div>
+    <h2>Add Mouse</h2>
+    <p class="subtitle">Create a new colony record with training and project metadata included.</p>
+  </div>
+</div>
+
+<form method="POST">
+  <div class="form-grid">
+    <div class="field">
+      <label for="group_type">Group type</label>
+      <select id="group_type" name="group_type" required>
+        <option value="genetic_strain">True genetic strain</option>
+        <option value="procedure_cohort">Surgery / injection cohort</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="strain">Strain</label>
+      <input id="strain" name="strain" value="{{ strain_prefill }}" list="mouse-labels" required>
+    </div>
+    <div class="field">
+      <label for="gender">Gender</label>
+      <select id="gender" name="gender" required>
+        <option value="MALE">MALE</option>
+        <option value="FEMALE">FEMALE</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="genotype">Genotype</label>
+      <input id="genotype" name="genotype" required>
+    </div>
+    <div class="field">
+      <label for="dob">Date of birth</label>
+      <input id="dob" name="dob" type="date" required>
+    </div>
+    <div class="field">
+      <label for="cage">Cage</label>
+      <input id="cage" name="cage" required>
+    </div>
+    <div class="field">
+      <label for="rack_location">Rack location</label>
+      <input id="rack_location" name="rack_location" placeholder="Rack A / Shelf 2">
+    </div>
+    <div class="field">
+      <label for="project">Project</label>
+      <input id="project" name="project">
+    </div>
+    <div class="checkbox-field">
+      <input id="training" name="training" type="checkbox">
+      <label for="training">Training mouse</label>
+    </div>
+    <div class="field full">
+      <label for="notes">Notes</label>
+      <textarea id="notes" name="notes"></textarea>
+    </div>
+  </div>
+  <div class="actions" style="margin-top: 16px;">
+    <button type="submit" class="button success">Save Mouse</button>
+    <a href="{{ url_for('mice_list') }}" class="button secondary">Cancel</a>
+  </div>
+</form>
+
+<datalist id="mouse-labels">
+  {% for label in label_options.genetic_strain %}
+  <option value="{{ label }}"></option>
+  {% endfor %}
+  {% for label in label_options.procedure_cohort %}
+  <option value="{{ label }}"></option>
+  {% endfor %}
+</datalist>
+{% endblock %}

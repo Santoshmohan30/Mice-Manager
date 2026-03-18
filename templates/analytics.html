@@ -1,0 +1,289 @@
+{% extends "layout.html" %}
+{% block title %}Analytics · Mice Manager{% endblock %}
+{% block content %}
+<div class="section-header">
+  <div>
+    <h2>Analytics</h2>
+    <p class="subtitle">True genetic strains are separated from surgery and injection cohorts, with rack-aware summaries and visual plots.</p>
+  </div>
+</div>
+
+<div class="grid stats-grid">
+  <div class="stats-card">
+    <p class="stats-label">True strains</p>
+    <p class="stats-value">{{ summary.strain_count }}</p>
+  </div>
+  <div class="stats-card">
+    <p class="stats-label">Procedure cohorts</p>
+    <p class="stats-value">{{ summary.procedure_cohort_count }}</p>
+  </div>
+  <div class="stats-card">
+    <p class="stats-label">Total mice</p>
+    <p class="stats-value">{{ summary.total_mice }}</p>
+  </div>
+  <div class="stats-card">
+    <p class="stats-label">Breeding records</p>
+    <p class="stats-value">{{ summary.total_breedings }}</p>
+  </div>
+  <div class="stats-card">
+    <p class="stats-label">Largest true strain</p>
+    <p class="stats-value" style="font-size: 1.05rem;">{{ summary.top_strain }}</p>
+  </div>
+</div>
+
+<div class="split-layout">
+  <section class="card">
+    <div class="section-header">
+      <div>
+        <h3>True Strain Plot</h3>
+        <p class="subtitle">Only core strains are counted here. Procedure-style labels are excluded.</p>
+      </div>
+    </div>
+    <div class="plot-list">
+      {% for row in strain_rows %}
+      <div class="plot-row">
+        <div class="plot-meta">
+          <span>{{ row.label }}</span>
+          <span>{{ row.total_mice }}</span>
+        </div>
+        <div class="plot-track">
+          <div class="plot-bar" style="width: {{ row.plot_width }}%;"></div>
+        </div>
+      </div>
+      {% else %}
+      <p class="muted">No true strain data found.</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="section-header">
+      <div>
+        <h3>Surgery / Injection Plot</h3>
+        <p class="subtitle">These are the mice currently labeled as AAV, implant, EEG, or similar cohorts.</p>
+      </div>
+    </div>
+    <div class="plot-list">
+      {% for row in procedure_rows %}
+      <div class="plot-row">
+        <div class="plot-meta">
+          <span>{{ row.label }}</span>
+          <span>{{ row.total_mice }}</span>
+        </div>
+        <div class="plot-track">
+          <div class="plot-bar secondary" style="width: {{ row.plot_width }}%;"></div>
+        </div>
+      </div>
+      {% else %}
+      <p class="muted">No procedure cohorts found in the mouse table.</p>
+      {% endfor %}
+    </div>
+  </section>
+</div>
+
+<div class="split-layout" style="margin-top: 18px;">
+  <section class="card">
+    <div class="section-header">
+      <div>
+        <h3>Rack Location Plot</h3>
+        <p class="subtitle">Where the colony is physically distributed right now.</p>
+      </div>
+    </div>
+    <div class="plot-list">
+      {% for row in rack_rows %}
+      <div class="plot-row">
+        <div class="plot-meta">
+          <span>{{ row.rack }}</span>
+          <span>{{ row.count }}</span>
+        </div>
+        <div class="plot-track">
+          <div class="plot-bar tertiary" style="width: {{ row.plot_width }}%;"></div>
+        </div>
+      </div>
+      {% else %}
+      <p class="muted">No rack locations assigned yet.</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="section-header">
+      <div>
+        <h3>Procedure Type Plot</h3>
+        <p class="subtitle">Built from the actual procedures table when those records are logged.</p>
+      </div>
+    </div>
+    <div class="plot-list">
+      {% for row in procedure_type_rows %}
+      <div class="plot-row">
+        <div class="plot-meta">
+          <span>{{ row.label }}</span>
+          <span>{{ row.count }}</span>
+        </div>
+        <div class="plot-track">
+          <div class="plot-bar secondary" style="width: {{ row.plot_width }}%;"></div>
+        </div>
+      </div>
+      {% else %}
+      <p class="muted">No procedure records yet.</p>
+      {% endfor %}
+    </div>
+  </section>
+</div>
+
+<section class="card" style="margin-top: 18px;">
+  <div class="section-header">
+    <div>
+      <h3>True Strain Detail</h3>
+      <p class="subtitle">Detailed table for the core strains you actually want to track as strains.</p>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Strain</th>
+          <th>Total</th>
+          <th>Male</th>
+          <th>Female</th>
+          <th>Training</th>
+          <th>Cages</th>
+          <th>Racks</th>
+          <th>Breeding Links</th>
+          <th>Procedures</th>
+          <th>Avg Age</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in strain_rows %}
+        <tr>
+          <td>{{ row.label }}</td>
+          <td>{{ row.total_mice }}</td>
+          <td>{{ row.male_count }}</td>
+          <td>{{ row.female_count }}</td>
+          <td>{{ row.training_count }}</td>
+          <td>{{ row.cages_in_use }}</td>
+          <td>{{ row.rack_summary or "Unassigned" }}</td>
+          <td>{{ row.breeding_links }}</td>
+          <td>{{ row.procedure_count }}</td>
+          <td>{{ row.avg_age_days }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="10" class="muted">No true strain rows available.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card" style="margin-top: 18px;">
+  <div class="section-header">
+    <div>
+      <h3>Procedure Cohort Detail</h3>
+      <p class="subtitle">These are kept separate so they do not inflate your real strain count.</p>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Cohort</th>
+          <th>Total</th>
+          <th>Male</th>
+          <th>Female</th>
+          <th>Cages</th>
+          <th>Racks</th>
+          <th>Avg Age</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in procedure_rows %}
+        <tr>
+          <td>{{ row.label }}</td>
+          <td>{{ row.total_mice }}</td>
+          <td>{{ row.male_count }}</td>
+          <td>{{ row.female_count }}</td>
+          <td>{{ row.cages_in_use }}</td>
+          <td>{{ row.rack_summary or "Unassigned" }}</td>
+          <td>{{ row.avg_age_days }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="7" class="muted">No procedure cohort rows available.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card" style="margin-top: 18px;">
+  <div class="section-header">
+    <div>
+      <h3>Lab Cost Calculator</h3>
+      <p class="subtitle">A practical estimate of colony management cost that you can tune for your facility.</p>
+    </div>
+  </div>
+
+  <form method="POST">
+    <div class="form-grid">
+      <div class="field">
+        <label for="purchase_cost_per_mouse">Purchase value per mouse</label>
+        <input id="purchase_cost_per_mouse" name="purchase_cost_per_mouse" type="number" step="0.01" value="{{ calculator_values.purchase_cost_per_mouse }}">
+      </div>
+      <div class="field">
+        <label for="housing_cost_per_mouse_per_month">Housing cost per mouse / month</label>
+        <input id="housing_cost_per_mouse_per_month" name="housing_cost_per_mouse_per_month" type="number" step="0.01" value="{{ calculator_values.housing_cost_per_mouse_per_month }}">
+      </div>
+      <div class="field">
+        <label for="feed_cost_per_mouse_per_month">Feed cost per mouse / month</label>
+        <input id="feed_cost_per_mouse_per_month" name="feed_cost_per_mouse_per_month" type="number" step="0.01" value="{{ calculator_values.feed_cost_per_mouse_per_month }}">
+      </div>
+      <div class="field">
+        <label for="procedure_cost_average">Average cost per procedure</label>
+        <input id="procedure_cost_average" name="procedure_cost_average" type="number" step="0.01" value="{{ calculator_values.procedure_cost_average }}">
+      </div>
+      <div class="field">
+        <label for="breeding_pair_cost_per_month">Breeding pair cost / month</label>
+        <input id="breeding_pair_cost_per_month" name="breeding_pair_cost_per_month" type="number" step="0.01" value="{{ calculator_values.breeding_pair_cost_per_month }}">
+      </div>
+    </div>
+    <div class="actions" style="margin-top: 16px;">
+      <button type="submit" class="button success">Recalculate</button>
+    </div>
+  </form>
+
+  <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin-top: 18px;">
+    <div class="card">
+      <strong>Monthly housing</strong>
+      <p>${{ '%.2f'|format(cost_summary.monthly_housing_total) }}</p>
+    </div>
+    <div class="card">
+      <strong>Monthly feed</strong>
+      <p>${{ '%.2f'|format(cost_summary.monthly_feed_total) }}</p>
+    </div>
+    <div class="card">
+      <strong>Monthly breeding</strong>
+      <p>${{ '%.2f'|format(cost_summary.monthly_breeding_total) }}</p>
+    </div>
+    <div class="card">
+      <strong>Procedure value</strong>
+      <p>${{ '%.2f'|format(cost_summary.estimated_procedure_total) }}</p>
+    </div>
+    <div class="card">
+      <strong>Colony purchase value</strong>
+      <p>${{ '%.2f'|format(cost_summary.estimated_purchase_value) }}</p>
+    </div>
+    <div class="card">
+      <strong>Estimated monthly total</strong>
+      <p>${{ '%.2f'|format(cost_summary.estimated_monthly_total) }}</p>
+    </div>
+    <div class="card">
+      <strong>Estimated management value</strong>
+      <p>${{ '%.2f'|format(cost_summary.estimated_overall_management_value) }}</p>
+    </div>
+  </div>
+</section>
+{% endblock %}

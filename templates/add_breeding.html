@@ -1,0 +1,57 @@
+{% extends "layout.html" %}
+{% block title %}Add Breeding · Mice Manager{% endblock %}
+{% block content %}
+<div class="section-header">
+  <div>
+    <h2>Add Breeding Pair</h2>
+    <p class="subtitle">Use real mouse IDs from your colony so breeding history stays connected.</p>
+  </div>
+</div>
+
+<form method="POST">
+  <div class="form-grid">
+    <div class="field">
+      <label for="male_id">Male mouse</label>
+      <select id="male_id" name="male_id" required>
+        <option value="">Select male</option>
+        {% for mouse in mice if mouse.gender == 'MALE' %}
+        <option value="{{ mouse.id }}">#{{ mouse.id }} · {{ mouse.strain }} · Cage {{ mouse.cage }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="female_id">Female mouse</label>
+      <select id="female_id" name="female_id" required>
+        <option value="">Select female</option>
+        {% for mouse in mice if mouse.gender == 'FEMALE' %}
+        <option value="{{ mouse.id }}">#{{ mouse.id }} · {{ mouse.strain }} · Cage {{ mouse.cage }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="pair_date">Pair date</label>
+      <input id="pair_date" name="pair_date" type="date" required>
+    </div>
+    <div class="field">
+      <label for="litter_count">Litter count</label>
+      <input id="litter_count" name="litter_count" type="number" min="0">
+    </div>
+    <div class="field">
+      <label for="litter_date">Litter date</label>
+      <input id="litter_date" name="litter_date" type="date">
+    </div>
+    <div class="field">
+      <label for="wean_date">Wean date</label>
+      <input id="wean_date" name="wean_date" type="date">
+    </div>
+    <div class="field full">
+      <label for="notes">Notes</label>
+      <textarea id="notes" name="notes"></textarea>
+    </div>
+  </div>
+  <div class="actions" style="margin-top: 16px;">
+    <button type="submit" class="button success">Save Breeding Record</button>
+    <a href="{{ url_for('breeding_log') }}" class="button secondary">Cancel</a>
+  </div>
+</form>
+{% endblock %}
