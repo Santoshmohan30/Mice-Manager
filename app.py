@@ -1,8 +1,12 @@
 import csv
 import io
 import os
+import re
+import secrets
 import sqlite3
-from datetime import date, datetime
+import subprocess
+import tempfile
+from datetime import date, datetime, timedelta
 from functools import wraps
 from pathlib import Path
 
@@ -20,15 +24,24 @@ from flask import (
     url_for,
 )
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+from markupsafe import Markup
+from PIL import Image, ImageOps
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from extensions import db, migrate
 
 
 app = Flask(__name__)
+database_url = os.environ.get("DATABASE_URL", "sqlite:///mice.db")
+if database_url.startswith("postgres://"):
+    database_url = database_url.replace("postgres://", "postgresql://", 1)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "mice-secret-key")
-app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///mice.db"
+app.config["SQLALCHEMY_DATABASE_URI"] = database_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = False
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=8)
 
 db.init_app(app)
 migrate.init_app(app, db)
@@ -40,8 +53,41 @@ def token_serializer():
     return URLSafeTimedSerializer(app.config["SECRET_KEY"], salt="mice-manager-api")
 
 
+def password_policy_errors(password, username=""):
+    issues = []
+    if len(password) < 10:
+        issues.append("Password must be at least 10 characters.")
+    if password.lower() == password:
+        issues.append("Password must include at least one uppercase letter.")
+    if password.upper() == password:
+        issues.append("Password must include at least one lowercase letter.")
+    if not any(char.isdigit() for char in password):
+        issues.append("Password must include at least one number.")
+    if all(char.isalnum() for char in password):
+        issues.append("Password must include at least one special character.")
+    if username and username.lower() in password.lower():
+        issues.append("Password should not contain the username.")
+    return issues
+
+
+def is_safe_redirect_target(target):
+    return bool(target) and target.startswith("/") and not target.startswith("//")
+
+
+def csrf_token():
+    token = session.get("_csrf_token")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session["_csrf_token"] = token
+    return token
+
+
+def csrf_input():
+    return Markup(f'<input type="hidden" name="_csrf_token" value="{csrf_token()}">')
+
+
 def inject_now():
-    return {"now": datetime.now}
+    return {"now": datetime.now, "csrf_input": csrf_input}
 
 
 app.context_processor(inject_now)
@@ -110,7 +156,13 @@ def today_iso():
     return date.today().isoformat()
 
 
+def is_sqlite_backend():
+    return app.config["SQLALCHEMY_DATABASE_URI"].startswith("sqlite:")
+
+
 def database_file():
+    if not is_sqlite_backend():
+        raise RuntimeError("database_file() is only available for SQLite backends")
     return Path(app.instance_path) / "mice.db"
 
 
@@ -126,6 +178,8 @@ def safe_backup_label(label):
 
 
 def create_database_backup(label="manual"):
+    if not is_sqlite_backend():
+        raise RuntimeError("Automatic in-app backup is only supported for SQLite.")
     source = database_file()
     if not source.exists():
         raise FileNotFoundError(f"Database not found at {source}")
@@ -156,6 +210,8 @@ def available_backups():
 
 
 def restore_database_from_backup(backup_name):
+    if not is_sqlite_backend():
+        raise RuntimeError("In-app restore is only supported for SQLite.")
     backup_path = backup_directory() / backup_name
     if not backup_path.exists():
         raise FileNotFoundError(f"Backup not found: {backup_name}")
@@ -176,6 +232,15 @@ def current_user():
     return db.session.get(User, user_id)
 
 
+def parse_datetime(value):
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
 def active_mouse_query():
     return Mouse.query.filter(Mouse.is_active.is_(True))
 
@@ -194,9 +259,57 @@ def log_action(action, entity_type, entity_id, details=""):
     )
 
 
+def ensure_user_schema():
+    with db.engine.begin() as connection:
+        columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(user)").fetchall()}
+        if "must_change_password" not in columns:
+            connection.exec_driver_sql("ALTER TABLE user ADD COLUMN must_change_password BOOLEAN")
+            connection.exec_driver_sql("UPDATE user SET must_change_password = 0 WHERE must_change_password IS NULL")
+        if "failed_login_attempts" not in columns:
+            connection.exec_driver_sql("ALTER TABLE user ADD COLUMN failed_login_attempts INTEGER")
+            connection.exec_driver_sql("UPDATE user SET failed_login_attempts = 0 WHERE failed_login_attempts IS NULL")
+        if "locked_until" not in columns:
+            connection.exec_driver_sql("ALTER TABLE user ADD COLUMN locked_until VARCHAR(30)")
+        if "last_login_at" not in columns:
+            connection.exec_driver_sql("ALTER TABLE user ADD COLUMN last_login_at VARCHAR(30)")
+
+
 @app.before_request
 def load_current_user():
+    session.permanent = True
     g.user = current_user()
+
+
+@app.before_request
+def enforce_password_change():
+    if g.get("user") is None:
+        return None
+    exempt_endpoints = {"change_password", "logout", "static"}
+    if g.user.must_change_password and request.endpoint not in exempt_endpoints and not request.path.startswith("/api/"):
+        flash("Please update your password to continue.", "warning")
+        return redirect(url_for("change_password"))
+
+
+@app.before_request
+def validate_csrf():
+    if request.method != "POST":
+        return None
+    if request.path.startswith("/api/"):
+        return None
+    token = session.get("_csrf_token")
+    submitted = request.form.get("_csrf_token")
+    if not token or token != submitted:
+        flash("Your session form token expired. Please try again.", "danger")
+        return redirect(request.referrer or url_for("login"))
+
+
+@app.after_request
+def add_security_headers(response):
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 def login_required(view):
@@ -225,6 +338,24 @@ def role_required(*roles):
         return wrapped_view
 
     return decorator
+
+
+def login_locked(user):
+    lock_until = parse_datetime(user.locked_until)
+    return bool(lock_until and lock_until > datetime.now())
+
+
+def register_failed_login(user):
+    user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
+    if user.failed_login_attempts >= 5:
+        user.locked_until = (datetime.now() + timedelta(minutes=15)).isoformat(timespec="seconds")
+        user.failed_login_attempts = 0
+
+
+def register_successful_login(user):
+    user.failed_login_attempts = 0
+    user.locked_until = None
+    user.last_login_at = datetime.now().isoformat(timespec="seconds")
 
 
 def api_user():
@@ -315,6 +446,165 @@ def apply_mouse_form(mouse, form):
     mouse.project = form.get("project", "").strip()
 
 
+def extract_cage_card_fields(raw_text):
+    text = (raw_text or "").strip()
+    normalized = normalize_label(text)
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+
+    def first_group(patterns):
+        for pattern in patterns:
+            match = re.search(pattern, text, flags=re.IGNORECASE)
+            if match:
+                return match.group(1).strip()
+        return ""
+
+    strain = ""
+    detected_group_type = ""
+    for canonical in mouse_label_options()["genetic_strain"]:
+        if normalize_label(canonical) in normalized:
+            strain = canonical
+            detected_group_type = "genetic_strain"
+            break
+    if not strain:
+        for canonical in mouse_label_options()["procedure_cohort"]:
+            if normalize_label(canonical) in normalized:
+                strain = canonical
+                detected_group_type = "procedure_cohort"
+                break
+
+    gender = first_group([r"\b(?:SEX|GENDER)\s*[:\-]?\s*(MALE|FEMALE|M|F)\b"])
+    if not gender:
+        if re.search(r"\bFEMALE\b|\bSEX\s*[:\-]?\s*F\b|\bGENDER\s*[:\-]?\s*F\b", text, flags=re.IGNORECASE):
+            gender = "FEMALE"
+        elif re.search(r"\bMALE\b|\bSEX\s*[:\-]?\s*M\b|\bGENDER\s*[:\-]?\s*M\b", text, flags=re.IGNORECASE):
+            gender = "MALE"
+    if gender.upper() == "M":
+        gender = "MALE"
+    elif gender.upper() == "F":
+        gender = "FEMALE"
+
+    genotype = first_group(
+        [
+            r"\bGENOTYPE\s*[:\-]?\s*([A-Za-z0-9+\/ _-]+)",
+            r"\bGT\s*[:\-]?\s*([A-Za-z0-9+\/ _-]+)",
+        ]
+    )
+    dob = first_group(
+        [
+            r"\bDOB\s*[:\-]?\s*([0-9]{4}-[0-9]{2}-[0-9]{2})\b",
+            r"\bDOB\s*[:\-]?\s*([0-9]{2}/[0-9]{2}/[0-9]{4})\b",
+            r"\bBORN\s*[:\-]?\s*([0-9]{4}-[0-9]{2}-[0-9]{2})\b",
+        ]
+    )
+    if dob and "/" in dob:
+        month, day, year = dob.split("/")
+        dob = f"{year}-{month.zfill(2)}-{day.zfill(2)}"
+
+    cage = first_group(
+        [
+            r"\bCAGE(?:\s*(?:NO|NUMBER|#))?\s*[:\-]?\s*([A-Za-z0-9-]+)\b",
+            r"\bBOX(?:\s*(?:NO|NUMBER|#))?\s*[:\-]?\s*([A-Za-z0-9-]+)\b",
+        ]
+    )
+    rack_location = first_group(
+        [
+            r"\bRACK(?:\s*LOCATION)?\s*[:\-]?\s*([A-Za-z0-9._ -]+)",
+            r"\bROOM\/RACK\s*[:\-]?\s*([A-Za-z0-9._ -]+)",
+        ]
+    )
+    project = first_group(
+        [
+            r"\bPROJECT\s*[:\-]?\s*([A-Za-z0-9._ -]+)",
+            r"\bSTUDY\s*[:\-]?\s*([A-Za-z0-9._ -]+)",
+        ]
+    )
+    mouse_id_text = first_group(
+        [
+            r"\bMOUSE(?:\s*ID|#)?\s*[:\-]?\s*([0-9]+)\b",
+            r"\bID\s*[:\-]?\s*([0-9]+)\b",
+        ]
+    )
+    training = bool(re.search(r"\bTRAINING\b", text, flags=re.IGNORECASE))
+
+    if not strain:
+        for line in lines:
+            candidate = canonical_mouse_label(line)
+            if candidate in mouse_label_options()["genetic_strain"] or candidate in mouse_label_options()["procedure_cohort"]:
+                strain = candidate
+                detected_group_type = infer_group_type_from_label(candidate)
+                break
+
+    if not detected_group_type and strain:
+        detected_group_type = infer_group_type_from_label(strain)
+
+    notes = ""
+    if lines:
+        notes = " | ".join(lines[:4])[:250]
+
+    warnings = []
+    if not cage:
+        warnings.append("Cage number was not detected clearly.")
+    if not strain:
+        warnings.append("Strain or procedure cohort was not detected clearly.")
+    if not dob:
+        warnings.append("DOB was not detected clearly.")
+    if not gender:
+        warnings.append("Sex or gender was not detected clearly.")
+
+    return {
+        "raw_text": text,
+        "mouse_id": int(mouse_id_text) if mouse_id_text.isdigit() else None,
+        "editor": {
+            "strain": strain,
+            "group_type": detected_group_type or "genetic_strain",
+            "gender": gender,
+            "genotype": genotype,
+            "dob": dob,
+            "cage": cage,
+            "rack_location": rack_location,
+            "project": project,
+            "notes": notes,
+            "training": training,
+        },
+        "warnings": warnings,
+    }
+
+
+def ocr_uploaded_image(file_storage):
+    if not file_storage or not getattr(file_storage, "filename", ""):
+        raise ValueError("No image was uploaded.")
+
+    with Image.open(file_storage.stream) as image:
+        cleaned = ImageOps.exif_transpose(image).convert("L")
+        cleaned = ImageOps.autocontrast(cleaned)
+        cleaned = cleaned.resize((cleaned.width * 2, cleaned.height * 2))
+
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temp_image:
+            temp_path = Path(temp_image.name)
+        try:
+            cleaned.save(temp_path)
+            result = subprocess.run(
+                [
+                    "/opt/homebrew/bin/tesseract",
+                    str(temp_path),
+                    "stdout",
+                    "--psm",
+                    "6",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode != 0:
+                raise RuntimeError(result.stderr.strip() or "OCR could not read the image.")
+            text = result.stdout.strip()
+            if not text:
+                raise RuntimeError("OCR did not find readable text on this card.")
+            return text
+        finally:
+            temp_path.unlink(missing_ok=True)
+
+
 def ensure_mouse_schema():
     with db.engine.begin() as connection:
         columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(mouse)").fetchall()}
@@ -350,20 +640,37 @@ def normalize_existing_mouse_data():
 def ensure_default_admin():
     db.create_all()
     ensure_mouse_schema()
+    ensure_user_schema()
     if User.query.count() == 0:
         default_password = os.environ.get("DEFAULT_ADMIN_PASSWORD", "ChangeMe123!")
         admin = User(
             username=os.environ.get("DEFAULT_ADMIN_USERNAME", "admin"),
             password=generate_password_hash(default_password),
             role="admin",
+            must_change_password=True,
+            failed_login_attempts=0,
         )
         db.session.add(admin)
+        db.session.commit()
+
+
+def normalize_existing_user_data():
+    changed = False
+    for user in User.query.all():
+        if user.failed_login_attempts is None:
+            user.failed_login_attempts = 0
+            changed = True
+        if user.must_change_password is None:
+            user.must_change_password = False
+            changed = True
+    if changed:
         db.session.commit()
 
 
 with app.app_context():
     ensure_default_admin()
     normalize_existing_mouse_data()
+    normalize_existing_user_data()
 
 
 @app.route("/")
@@ -383,13 +690,29 @@ def login():
         password = request.form.get("password", "")
         user = User.query.filter_by(username=username).first()
 
+        if user and login_locked(user):
+            lock_until = parse_datetime(user.locked_until)
+            flash(f"Account locked until {lock_until.strftime('%H:%M:%S')} due to repeated failed logins.", "danger")
+            return render_template("login.html", default_hint=False, default_admin_name=os.environ.get("DEFAULT_ADMIN_USERNAME", "admin"))
+
         if user and check_password_hash(user.password, password):
             session.clear()
             session["user_id"] = user.id
+            session["_csrf_token"] = secrets.token_urlsafe(32)
+            register_successful_login(user)
+            log_action("login", "user", user.username, "Successful web login")
+            db.session.commit()
             flash(f"Welcome back, {user.username}.", "success")
-            next_url = request.args.get("next") or url_for("dashboard")
+            if user.must_change_password:
+                flash("Please change your password before continuing.", "warning")
+                return redirect(url_for("change_password"))
+            next_url = request.args.get("next")
+            next_url = next_url if is_safe_redirect_target(next_url) else url_for("dashboard")
             return redirect(next_url)
 
+        if user:
+            register_failed_login(user)
+            db.session.commit()
         flash("Invalid username or password.", "danger")
 
     default_admin_name = os.environ.get("DEFAULT_ADMIN_USERNAME", "admin")
@@ -400,9 +723,42 @@ def login():
 @app.route("/logout", methods=["POST"])
 @login_required
 def logout():
+    log_action("logout", "user", g.user.username, "Signed out")
+    db.session.commit()
     session.clear()
     flash("You have been signed out.", "info")
     return redirect(url_for("login"))
+
+
+@app.route("/change-password", methods=["GET", "POST"])
+@login_required
+def change_password():
+    if request.method == "POST":
+        current_password = request.form.get("current_password", "")
+        new_password = request.form.get("new_password", "")
+        confirm_password = request.form.get("confirm_password", "")
+
+        if not check_password_hash(g.user.password, current_password):
+            flash("Current password is incorrect.", "danger")
+            return redirect(url_for("change_password"))
+        if new_password != confirm_password:
+            flash("New password and confirmation do not match.", "danger")
+            return redirect(url_for("change_password"))
+
+        issues = password_policy_errors(new_password, g.user.username)
+        if issues:
+            for issue in issues:
+                flash(issue, "danger")
+            return redirect(url_for("change_password"))
+
+        g.user.password = generate_password_hash(new_password)
+        g.user.must_change_password = False
+        log_action("password_change", "user", g.user.username, "Changed own password")
+        db.session.commit()
+        flash("Password updated successfully.", "success")
+        return redirect(url_for("dashboard"))
+
+    return render_template("change_password.html")
 
 
 @app.route("/users", methods=["GET", "POST"])
@@ -421,11 +777,19 @@ def users():
             flash("That username already exists.", "warning")
             return redirect(url_for("users"))
 
+        issues = password_policy_errors(password, username)
+        if issues:
+            for issue in issues:
+                flash(issue, "danger")
+            return redirect(url_for("users"))
+
         db.session.add(
             User(
                 username=username,
                 password=generate_password_hash(password),
                 role=role,
+                must_change_password=True,
+                failed_login_attempts=0,
             )
         )
         log_action("create", "user", username, f"Created user with role {role}")
@@ -441,11 +805,16 @@ def users():
 def reset_user_password(user_id):
     user = User.query.get_or_404(user_id)
     password = request.form.get("password", "")
-    if len(password) < 8:
-        flash("Passwords must be at least 8 characters.", "danger")
+    issues = password_policy_errors(password, user.username)
+    if issues:
+        for issue in issues:
+            flash(issue, "danger")
         return redirect(url_for("users"))
 
     user.password = generate_password_hash(password)
+    user.must_change_password = True
+    user.failed_login_attempts = 0
+    user.locked_until = None
     log_action("password_reset", "user", user.username, "Password reset by admin")
     db.session.commit()
     flash(f"Password updated for {user.username}.", "success")
@@ -464,7 +833,8 @@ def audit_log():
 def backups():
     return render_template(
         "backups.html",
-        live_database_path=str(database_file()),
+        live_database_path=str(database_file()) if is_sqlite_backend() else "PostgreSQL / external database",
+        sqlite_mode=is_sqlite_backend(),
         backups=available_backups(),
     )
 
@@ -472,6 +842,9 @@ def backups():
 @app.route("/backups/create", methods=["POST"])
 @role_required("admin")
 def create_backup():
+    if not is_sqlite_backend():
+        flash("In-app backup is available only for SQLite. Use your database provider backup tools for PostgreSQL.", "warning")
+        return redirect(url_for("backups"))
     label = request.form.get("label", "manual")
     backup_path = create_database_backup(label=label)
     log_action("backup_create", "database", backup_path.name, f"Created backup {backup_path.name}")
@@ -483,6 +856,9 @@ def create_backup():
 @app.route("/backups/download/<path:backup_name>")
 @role_required("admin")
 def download_backup(backup_name):
+    if not is_sqlite_backend():
+        flash("Backup download is available only for SQLite backups.", "warning")
+        return redirect(url_for("backups"))
     backup_path = backup_directory() / backup_name
     if not backup_path.exists():
         flash("Backup file not found.", "danger")
@@ -493,6 +869,9 @@ def download_backup(backup_name):
 @app.route("/backups/restore/<path:backup_name>", methods=["POST"])
 @role_required("admin")
 def restore_backup(backup_name):
+    if not is_sqlite_backend():
+        flash("In-app restore is available only for SQLite. Use your PostgreSQL restore workflow instead.", "warning")
+        return redirect(url_for("backups"))
     restore_target = backup_directory() / backup_name
     if not restore_target.exists():
         flash("Backup file not found.", "danger")
@@ -759,6 +1138,47 @@ def mice_list():
     )
 
 
+@app.route("/scan-cage-card", methods=["GET", "POST"])
+@login_required
+def scan_cage_card():
+    parsed = None
+    matches = []
+    raw_text = ""
+
+    if request.method == "POST":
+        raw_text = request.form.get("raw_text", "").strip()
+        image_file = request.files.get("cage_card_camera") or request.files.get("cage_card_gallery")
+
+        if image_file and getattr(image_file, "filename", ""):
+            try:
+                raw_text = ocr_uploaded_image(image_file)
+            except Exception as error:
+                flash(str(error), "danger")
+
+        if raw_text:
+            parsed = extract_cage_card_fields(raw_text)
+            if parsed["mouse_id"]:
+                mouse = Mouse.query.get(parsed["mouse_id"])
+                if mouse:
+                    matches = [mouse]
+            elif parsed["editor"]["cage"]:
+                matches = (
+                    active_mouse_query()
+                    .filter(Mouse.cage == parsed["editor"]["cage"])
+                    .order_by(Mouse.id.desc())
+                    .all()
+                )
+        else:
+            flash("Take a cage card photo or paste OCR text first.", "danger")
+
+    return render_template(
+        "scan_cage_card.html",
+        raw_text=raw_text,
+        parsed=parsed,
+        matches=matches,
+    )
+
+
 @app.route("/add_mouse", methods=["GET", "POST"])
 @login_required
 def add_mouse():
@@ -775,6 +1195,15 @@ def add_mouse():
     return render_template(
         "add_mouse.html",
         strain_prefill=request.args.get("strain", ""),
+        group_type_prefill=request.args.get("group_type", "genetic_strain"),
+        gender_prefill=request.args.get("gender", "MALE"),
+        genotype_prefill=request.args.get("genotype", ""),
+        dob_prefill=request.args.get("dob", ""),
+        cage_prefill=request.args.get("cage", ""),
+        rack_location_prefill=request.args.get("rack_location", ""),
+        project_prefill=request.args.get("project", ""),
+        notes_prefill=request.args.get("notes", ""),
+        training_prefill=request.args.get("training", "").lower() in {"1", "true", "yes", "on"},
         label_options=mouse_label_options(),
     )
 
@@ -1059,14 +1488,27 @@ def api_login():
     password = payload.get("password") or ""
 
     user = User.query.filter_by(username=username).first()
+    if user and login_locked(user):
+        return jsonify({"error": "Account temporarily locked due to failed logins"}), 423
     if user is None or not check_password_hash(user.password, password):
+        if user:
+            register_failed_login(user)
+            db.session.commit()
         return jsonify({"error": "Invalid credentials"}), 401
 
+    register_successful_login(user)
     token = token_serializer().dumps({"user_id": user.id})
+    log_action("api_login", "user", user.username, "Successful mobile/API login")
+    db.session.commit()
     return jsonify(
         {
             "token": token,
-            "user": {"id": user.id, "username": user.username, "role": user.role},
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "role": user.role,
+                "must_change_password": bool(user.must_change_password),
+            },
         }
     )
 
@@ -1097,12 +1539,38 @@ def api_dashboard():
     )
 
 
+@app.route("/api/analytics")
+@api_login_required
+def api_analytics():
+    mice = active_mouse_query().all()
+    true_strains = {}
+    procedure_cohorts = {}
+    rack_counts = {}
+
+    for mouse in mice:
+        target = true_strains if mouse.group_type == "genetic_strain" else procedure_cohorts
+        target[mouse.strain] = target.get(mouse.strain, 0) + 1
+        rack_key = mouse.rack_location or "Unassigned"
+        rack_counts[rack_key] = rack_counts.get(rack_key, 0) + 1
+
+    return jsonify(
+        {
+            "true_strains": true_strains,
+            "procedure_cohorts": procedure_cohorts,
+            "racks": rack_counts,
+        }
+    )
+
+
 @app.route("/api/mice", methods=["GET", "POST"])
 @api_login_required
 def api_mice():
     if request.method == "GET":
         include_archived = request.args.get("include_archived", "").strip() == "1"
         query = Mouse.query if include_archived else active_mouse_query()
+        cage_filter = request.args.get("cage", "").strip()
+        if cage_filter:
+            query = query.filter(Mouse.cage == cage_filter)
         mice = query.order_by(Mouse.id.desc()).all()
         return jsonify([serialize_mouse(mouse) for mouse in mice])
 
@@ -1155,6 +1623,45 @@ def api_update_mouse(mouse_id):
     return jsonify(serialize_mouse(mouse))
 
 
+@app.route("/api/mice/<int:mouse_id>", methods=["DELETE"])
+@api_login_required
+def api_archive_mouse(mouse_id):
+    mouse = Mouse.query.get_or_404(mouse_id)
+    mouse.is_active = False
+    mouse.deleted_at = datetime.now().isoformat(timespec="seconds")
+    log_action("archive", "mouse", mouse.id, f"Archived by mobile/API from cage {mouse.cage}")
+    db.session.commit()
+    return jsonify({"status": "archived", "mouse": serialize_mouse(mouse)})
+
+
+@app.route("/api/cage-card/parse", methods=["POST"])
+@api_login_required
+def api_parse_cage_card():
+    payload = request.get_json(silent=True) or {}
+    raw_text = str(payload.get("text") or "").strip()
+    if not raw_text:
+        return jsonify({"error": "No OCR text was provided."}), 400
+
+    parsed = extract_cage_card_fields(raw_text)
+    matches = []
+
+    if parsed["mouse_id"]:
+        mouse = Mouse.query.get(parsed["mouse_id"])
+        if mouse:
+            matches = [mouse]
+    elif parsed["editor"]["cage"]:
+        matches = active_mouse_query().filter(Mouse.cage == parsed["editor"]["cage"]).order_by(Mouse.id.desc()).all()
+
+    return jsonify(
+        {
+            "raw_text": parsed["raw_text"],
+            "editor": parsed["editor"],
+            "warnings": parsed["warnings"],
+            "matches": [serialize_mouse(mouse) for mouse in matches],
+        }
+    )
+
+
 @app.route("/api/breeding")
 @api_login_required
 def api_breeding():
@@ -1168,4 +1675,4 @@ def not_found(_error):
 
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    app.run(debug=True, host="0.0.0.0", port=int(os.environ.get("PORT", "8000")))

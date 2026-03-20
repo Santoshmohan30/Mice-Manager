@@ -13,6 +13,7 @@
     <h3 style="margin-bottom: 12px;">Create Backup</h3>
     <p class="subtitle">Live database: <code>{{ live_database_path }}</code></p>
     <form method="POST" action="{{ url_for('create_backup') }}">
+      {{ csrf_input() }}
       <div class="field">
         <label for="label">Backup label</label>
         <input id="label" name="label" placeholder="manual, before-interview, weekly-check">
@@ -71,6 +72,7 @@
             <div class="actions">
               <a href="{{ url_for('download_backup', backup_name=backup.name) }}" class="button secondary">Download</a>
               <form method="POST" action="{{ url_for('restore_backup', backup_name=backup.name) }}" class="inline-form" onsubmit="return confirm('Restore this backup to the live database?');">
+                {{ csrf_input() }}
                 <button type="submit" class="button danger">Restore</button>
               </form>
             </div>

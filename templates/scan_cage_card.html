@@ -1,0 +1,137 @@
+{% extends "layout.html" %}
+{% block title %}Scan Cage Card · Mice Manager{% endblock %}
+{% block content %}
+<div class="section-header">
+  <div>
+    <h2>Scan Cage Card</h2>
+    <p class="subtitle">Paste OCR text from a phone scan or photo and turn it into a faster add or update workflow.</p>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom: 18px;">
+  <form method="POST" enctype="multipart/form-data">
+    {{ csrf_input() }}
+    <div class="field full">
+      <label for="cage_card_camera">Take cage card photo</label>
+      <input id="cage_card_camera" name="cage_card_camera" type="file" accept="image/*" capture="environment">
+      <p class="subtitle">On your phone this opens the rear camera so you can snap the card directly.</p>
+    </div>
+    <div class="field full">
+      <label for="cage_card_gallery">Choose from gallery</label>
+      <input id="cage_card_gallery" name="cage_card_gallery" type="file" accept="image/*">
+      <p class="subtitle">Use this if the cage card photo is already saved in your phone gallery.</p>
+    </div>
+    <div class="field full">
+      <label for="raw_text">Or paste cage card text</label>
+      <textarea id="raw_text" name="raw_text" placeholder="Example:
+CAGE: A-101
+STRAIN: Calb1-IRES-Cre
+SEX: F
+GENOTYPE: + POSITIVE
+DOB: 2026-03-01
+RACK: A1
+PROJECT: EEG">{{ raw_text }}</textarea>
+    </div>
+    <div class="actions" style="margin-top: 16px;">
+      <button type="submit" class="button">Scan And Parse</button>
+    </div>
+  </form>
+</div>
+
+{% if parsed %}
+<div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));">
+  <div class="card">
+    <h3>Detected Fields</h3>
+    <div class="detail-list" style="margin-top: 12px;">
+      <p><strong>Strain:</strong> {{ parsed.editor.strain or "Not found" }}</p>
+      <p><strong>Group type:</strong> {{ parsed.editor.group_type }}</p>
+      <p><strong>Gender:</strong> {{ parsed.editor.gender or "Not found" }}</p>
+      <p><strong>Genotype:</strong> {{ parsed.editor.genotype or "Not found" }}</p>
+      <p><strong>DOB:</strong> {{ parsed.editor.dob or "Not found" }}</p>
+      <p><strong>Cage:</strong> {{ parsed.editor.cage or "Not found" }}</p>
+      <p><strong>Rack:</strong> {{ parsed.editor.rack_location or "Not found" }}</p>
+      <p><strong>Project:</strong> {{ parsed.editor.project or "Not found" }}</p>
+      <p><strong>Training:</strong> {{ "Yes" if parsed.editor.training else "No" }}</p>
+    </div>
+    {% if parsed.warnings %}
+    <div class="flash-messages" style="margin-top: 14px;">
+      {% for warning in parsed.warnings %}
+      <li class="flash flash-danger">{{ warning }}</li>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <div class="actions" style="margin-top: 16px;">
+      <a
+        href="{{ url_for('add_mouse',
+          strain=parsed.editor.strain,
+          group_type=parsed.editor.group_type,
+          gender=parsed.editor.gender,
+          genotype=parsed.editor.genotype,
+          dob=parsed.editor.dob,
+          cage=parsed.editor.cage,
+          rack_location=parsed.editor.rack_location,
+          project=parsed.editor.project,
+          notes=parsed.editor.notes,
+          training='true' if parsed.editor.training else '') }}"
+        class="button success"
+      >
+        Auto Fill New Mouse
+      </a>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Raw OCR Text</h3>
+    <pre class="code-block">{{ parsed.raw_text }}</pre>
+  </div>
+</div>
+
+<div class="card" style="margin-top: 18px;">
+  <h3>Matching Records</h3>
+  {% if matches %}
+  <div class="table-wrap" style="margin-top: 14px;">
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Strain</th>
+          <th>Gender</th>
+          <th>Genotype</th>
+          <th>DOB</th>
+          <th>Cage</th>
+          <th>Rack</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for mouse in matches %}
+        <tr>
+          <td>{{ mouse.id }}</td>
+          <td>{{ mouse.strain }}</td>
+          <td>{{ mouse.gender }}</td>
+          <td>{{ mouse.genotype }}</td>
+          <td>{{ mouse.dob }}</td>
+          <td>{{ mouse.cage }}</td>
+          <td>{{ mouse.rack_location or "—" }}</td>
+          <td>
+            <div class="actions">
+              <a href="{{ url_for('edit_mouse', id=mouse.id) }}" class="button warning">Open Record</a>
+              {% if g.user.role in ['admin', 'tech'] %}
+              <form method="POST" action="{{ url_for('delete_mouse', id=mouse.id) }}" class="inline-form" onsubmit="return confirm('Archive this matching mouse?');">
+                {{ csrf_input() }}
+                <button type="submit" class="button danger">Archive</button>
+              </form>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="subtitle" style="margin-top: 12px;">No active mice matched the detected cage or ID.</p>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

@@ -254,6 +254,17 @@ textarea {
   resize: vertical;
 }
 
+.code-block {
+  margin: 0;
+  padding: 14px;
+  border-radius: 14px;
+  background: rgba(2, 6, 23, 0.75);
+  border: 1px solid var(--line);
+  color: var(--text);
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+
 .checkbox-field {
   display: flex;
   align-items: center;

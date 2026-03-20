@@ -12,6 +12,7 @@
   <section class="card">
     <h3 style="margin-bottom: 12px;">Create User</h3>
     <form method="POST">
+      {{ csrf_input() }}
       <div class="form-grid">
         <div class="field">
           <label for="username">Username</label>
@@ -48,6 +49,7 @@
           </div>
         </div>
         <form method="POST" action="{{ url_for('reset_user_password', user_id=user.id) }}">
+          {{ csrf_input() }}
           <div class="field">
             <label for="password-{{ user.id }}">Reset password</label>
             <input id="password-{{ user.id }}" name="password" type="password" minlength="8" required>

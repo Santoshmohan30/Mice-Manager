@@ -9,12 +9,13 @@
 </div>
 
 <form method="POST">
+  {{ csrf_input() }}
   <div class="form-grid">
     <div class="field">
       <label for="group_type">Group type</label>
       <select id="group_type" name="group_type" required>
-        <option value="genetic_strain">True genetic strain</option>
-        <option value="procedure_cohort">Surgery / injection cohort</option>
+        <option value="genetic_strain" {% if group_type_prefill == "genetic_strain" %}selected{% endif %}>True genetic strain</option>
+        <option value="procedure_cohort" {% if group_type_prefill == "procedure_cohort" %}selected{% endif %}>Surgery / injection cohort</option>
       </select>
     </div>
     <div class="field">
@@ -24,37 +25,37 @@
     <div class="field">
       <label for="gender">Gender</label>
       <select id="gender" name="gender" required>
-        <option value="MALE">MALE</option>
-        <option value="FEMALE">FEMALE</option>
+        <option value="MALE" {% if gender_prefill == "MALE" %}selected{% endif %}>MALE</option>
+        <option value="FEMALE" {% if gender_prefill == "FEMALE" %}selected{% endif %}>FEMALE</option>
       </select>
     </div>
     <div class="field">
       <label for="genotype">Genotype</label>
-      <input id="genotype" name="genotype" required>
+      <input id="genotype" name="genotype" value="{{ genotype_prefill }}" required>
     </div>
     <div class="field">
       <label for="dob">Date of birth</label>
-      <input id="dob" name="dob" type="date" required>
+      <input id="dob" name="dob" type="date" value="{{ dob_prefill }}" required>
     </div>
     <div class="field">
       <label for="cage">Cage</label>
-      <input id="cage" name="cage" required>
+      <input id="cage" name="cage" value="{{ cage_prefill }}" required>
     </div>
     <div class="field">
       <label for="rack_location">Rack location</label>
-      <input id="rack_location" name="rack_location" placeholder="Rack A / Shelf 2">
+      <input id="rack_location" name="rack_location" value="{{ rack_location_prefill }}" placeholder="Rack A / Shelf 2">
     </div>
     <div class="field">
       <label for="project">Project</label>
-      <input id="project" name="project">
+      <input id="project" name="project" value="{{ project_prefill }}">
     </div>
     <div class="checkbox-field">
-      <input id="training" name="training" type="checkbox">
+      <input id="training" name="training" type="checkbox" {% if training_prefill %}checked{% endif %}>
       <label for="training">Training mouse</label>
     </div>
     <div class="field full">
       <label for="notes">Notes</label>
-      <textarea id="notes" name="notes"></textarea>
+      <textarea id="notes" name="notes">{{ notes_prefill }}</textarea>
     </div>
   </div>
   <div class="actions" style="margin-top: 16px;">

@@ -22,3 +22,7 @@ android-app/**/build/
 tools/__pycache__/
 migrations/__pycache__/
 models/__pycache__/
+
+.mice_manager_server.pid
+.mice_manager_server_timer.pid
+server.log

@@ -228,6 +228,7 @@
   </div>
 
   <form method="POST">
+    {{ csrf_input() }}
     <div class="form-grid">
       <div class="field">
         <label for="purchase_cost_per_mouse">Purchase value per mouse</label>

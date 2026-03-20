@@ -12,6 +12,7 @@
   <section class="card">
     <h3 style="margin-bottom: 12px;">Log Procedure</h3>
     <form method="POST">
+      {{ csrf_input() }}
       <div class="form-grid">
         <div class="field">
           <label for="mouse_id">Mouse</label>

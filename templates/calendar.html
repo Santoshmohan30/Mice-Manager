@@ -12,6 +12,7 @@
   <section class="card">
     <h3 style="margin-bottom: 12px;">Add Event</h3>
     <form method="POST" action="{{ url_for('add_calendar_event') }}">
+      {{ csrf_input() }}
       <div class="form-grid">
         <div class="field">
           <label for="title">Title</label>
@@ -53,6 +54,7 @@
             </div>
             {% if g.user.role in ['admin', 'tech'] %}
             <form method="POST" action="{{ url_for('delete_calendar_event', event_id=event.id) }}" class="inline-form" onsubmit="return confirm('Delete this event?');">
+              {{ csrf_input() }}
               <button type="submit" class="button danger">Delete</button>
             </form>
             {% endif %}

@@ -1,25 +1,23 @@
 # Mice Manager
 
-Mice Manager is a lab colony management system built to centralize mouse records, breeding workflows, procedure tracking, cage transfers, recovery operations, and mobile access in one place.
+Mice Manager is a private colony management application for tracking mouse records, breeding activity, procedures, cage transfers, scheduling, recovery operations, and day-to-day lab administration from a single system.
 
-The project is currently structured as a Flask web application with a SQLite-backed data layer, a role-based authentication system, administrative recovery tooling, and an Android starter client that connects to the backend API for mobile access on the same network.
+The current project is built around a Flask web application with a SQLite data store for local use and a companion Android client for mobile workflows on the same network.
 
-## Current Scope
+## Core Capabilities
 
-The application currently supports:
-
-- secure login with role-based access
-- colony dashboard and searchable mouse registry
-- strain and procedure-cohort separation
-- breeding and pup tracking
-- procedure logging
-- cage transfer tracking
+- authenticated access with role-based permissions
+- colony dashboard and mouse registry
+- separation of genetic strains and procedure cohorts
+- breeding, pups, and procedure tracking
+- cage transfer logging
 - calendar reminders
 - CSV export
-- backup and restore tooling
-- audit logging
-- analytics and cost estimation
-- Android starter app for login and colony access
+- backup and recovery tools
+- audit history for administrative activity
+- analytics, rack summaries, and colony cost estimates
+- mobile API endpoints and Android client support
+- cage-card scan workflow for faster record entry
 
 ## Stack
 
@@ -27,11 +25,11 @@ The application currently supports:
 - Flask
 - SQLAlchemy
 - SQLite
-- Jinja templates
+- Jinja2
 - Kotlin
 - Jetpack Compose
 
-## Project Structure
+## Repository Layout
 
 ```text
 MiceManager/
@@ -47,102 +45,91 @@ MiceManager/
 └── requirements.txt
 ```
 
-## Local Development
+## Running Locally
 
-Create and activate the virtual environment, install dependencies, and run the app:
+For a standard foreground run:
 
 ```bash
-python3 -m venv venv
+cd /Users/sonny03/Documents/MiceManager
 source venv/bin/activate
-pip install -r requirements.txt
-python app.py
+PORT=8000 python app.py
 ```
 
-The web app will be available at:
+For the local background launcher:
 
-- `http://127.0.0.1:8000` on the local machine
-- `http://<your-local-ip>:8000` from another device on the same network
+```bash
+cd /Users/sonny03/Documents/MiceManager
+./tools/start_local_server.sh
+```
 
-Default admin credentials:
+This starts the application on port `8000`, opens the browser locally, and keeps the session available for up to six hours by default.
 
-- username: `admin`
-- password: `ChangeMe123!`
+To stop the local background session:
 
-These defaults should be changed immediately in real usage.
+```bash
+cd /Users/sonny03/Documents/MiceManager
+./tools/stop_local_server.sh
+```
 
-## Data Model Notes
+## Access
 
-The application distinguishes between:
+- local machine: `http://127.0.0.1:8000`
+- phone on the same Wi-Fi: `http://<local-ip>:8000`
 
-- `genetic_strain`
-- `procedure_cohort`
+## Mobile Workflow
 
-This prevents procedure or surgery labels such as AAV or implant cohorts from being mixed into core strain analytics.
+The Android project is located in `android-app/`.
 
-Mouse records also support:
+The mobile client supports:
 
-- cage
-- rack location
-- project
-- training flag
-- soft-delete/archive state
+- API login
+- dashboard access
+- mouse list and editing
+- analytics access
+- cage-card scan flow for OCR-assisted entry and archive matching
 
-## Backup and Recovery
+Additional setup notes are available in [docs/ANDROID_SETUP.md](docs/ANDROID_SETUP.md).
 
-The app includes a recovery workflow through the admin interface.
+## Scan Workflow
 
-Features include:
+The application includes a cage-card scan flow designed to reduce manual entry time.
+
+Current flow:
+
+- capture a cage card photo from a phone
+- upload from camera or gallery
+- run OCR
+- parse likely cage-card fields
+- review extracted values
+- prefill a new mouse record or find a matching record for update or archive
+
+OCR is intended to accelerate entry, not replace review. Extracted values should still be confirmed before saving.
+
+## Data and Recovery
+
+The local app uses SQLite for private deployment and includes recovery tooling intended for local operational use.
+
+Recovery features include:
 
 - manual backup creation
 - downloadable backup files
-- restore from backup
-- automatic safety backup before restore
-
-A helper backup script is also included:
-
-```bash
-source venv/bin/activate
-python tools/create_backup.py
-```
-
-## Android App
-
-The Android client is located in `android-app/`.
-
-It currently includes:
-
-- login against the Flask API
-- dashboard summary access
-- mouse list access
-
-To run it:
-
-1. open `android-app` in Android Studio
-2. make sure the Flask backend is already running
-3. set the backend IP in the Android app if using a real phone
-4. run the app on a device or emulator
-
-Additional Android setup details are documented in:
-
-- [docs/ANDROID_SETUP.md](docs/ANDROID_SETUP.md)
-
-## Documentation
-
-Project documentation is included for operations, deployment, and planning:
-
-- [docs/ANDROID_SETUP.md](docs/ANDROID_SETUP.md)
-- [docs/PRIVATE_FREE_DEPLOYMENT.md](docs/PRIVATE_FREE_DEPLOYMENT.md)
-- [docs/PROJECT_SUMMARY_AND_INTERVIEW_GUIDE.md](docs/PROJECT_SUMMARY_AND_INTERVIEW_GUIDE.md)
-- [docs/EXECUTION_CHECKLIST.md](docs/EXECUTION_CHECKLIST.md)
+- restore support
+- safety backup before restore
 
 ## Operational Notes
 
-- the project is currently optimized for private/internal deployment
-- SQLite is sufficient for early-stage or single-lab use
-- PostgreSQL is the recommended next step for multi-user multi-lab production scaling
+- this repository is currently optimized for private local hosting
+- SQLite is suitable for local and low-concurrency use
+- PostgreSQL remains the recommended path for future multi-user hosted deployment
 - archived mice are soft-deleted and can be restored
-- audit logging is available for administrative visibility
+- administrative actions are written to the audit log
 
-## Status
+## Documentation
 
-This repository contains an actively evolving internal application intended to become a more complete operational platform for colony management, analytics, recovery, and mobile workflows.
+- [docs/ANDROID_SETUP.md](docs/ANDROID_SETUP.md)
+- [docs/LOCAL_RUN_AND_SCAN.md](docs/LOCAL_RUN_AND_SCAN.md)
+- [docs/PRIVATE_FREE_DEPLOYMENT.md](docs/PRIVATE_FREE_DEPLOYMENT.md)
+- [docs/PROJECT_SUMMARY_AND_INTERVIEW_GUIDE.md](docs/PROJECT_SUMMARY_AND_INTERVIEW_GUIDE.md)
+- [docs/EXECUTION_CHECKLIST.md](docs/EXECUTION_CHECKLIST.md)
+- [docs/POSTGRES_MIGRATION.md](docs/POSTGRES_MIGRATION.md)
+- [docs/RENDER_DEPLOY.md](docs/RENDER_DEPLOY.md)
