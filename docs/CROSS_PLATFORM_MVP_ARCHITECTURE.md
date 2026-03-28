@@ -1,34 +1,36 @@
-# Mice Manager Cross-Platform MVP Architecture
+# Mice Manager Cross-Platform Architecture
 
-## A. Architecture decision
+## Architecture decision
 
-- Use Flutter as the shared application shell for macOS and Android.
-- Keep SQLite local on each device in v1.
-- Use repository pattern and service layer.
-- Treat OCR and updater logic as platform adapters.
-- Make macOS the control hub and Android the main operational device.
-- Keep sync cloud-free in v1 with local JSON sync bundles and local/LAN manifests.
+Mice Manager now follows a practical offline-first split:
 
-## B. Smallest safe MVP
+- Flutter is the shared application layer for macOS and Android
+- macOS is the local desktop hub
+- Android is the primary field device
+- SQLite stays local on each device
+- repositories and services isolate business logic from storage
+- OCR and sync are treated as adapters and services, not mixed directly into UI
 
-1. Owner-protected login shell
-2. Mouse CRUD with `housing_type` required (`LAF` / `LAB`)
-3. Lifecycle fields:
-   - `is_alive`
-   - `status`
-   - `date_of_death`
-   - `death_reason`
-4. Local SQLite repository layer
-5. Offline OCR abstraction with TODO adapters
-6. Sync/update abstraction with explicit Android confirmation policy
+This keeps the app usable without cloud dependency while still leaving room for a stronger sync layer later.
 
-## C. Shared folder structure
+## What is already in place
 
-See `apps/mice_manager_flutter/`.
+The current implementation now includes:
 
-## D. Shared model design
+1. local SQLite persistence on Android
+2. macOS and Android build targets
+3. owner-protected role model
+4. mice management with `LAF` / `LAB`
+5. breeding and procedures
+6. date-based task tracking and weaning workflow support
+7. offline OCR intake on Android
+8. OCR history with archive and restore
+9. local export/import sync bundles
+10. same-Wi-Fi QR-driven Mac hub import flow
 
-Phase 1 includes:
+## Shared model design
+
+The Flutter app includes shared domain models for:
 
 - `Mouse`
 - `Breeding`
@@ -40,22 +42,48 @@ Phase 1 includes:
 - `UpdateManifest`
 - `DeviceTrust`
 - `HousingType`
+- `CalendarTask`
 
-## E. Owner-protected auth design
+## Owner-protected auth design
 
-- `OWNER` is separate from `ADMIN`
-- `isOwner` and `isProtected` are explicit
-- only `OWNER` can control owner-level settings, promotions, demotions, password policy, trusted sync sources, and recovery
-- owner recovery uses a TODO placeholder in Phase 1 and must be implemented securely in Phase 2
+The current role model keeps `OWNER` separate from `ADMIN`.
 
-## F. LAF/LAB housing design
+Key rules:
 
-- `housing_type` is a required field on `Mouse`
-- values are constrained by enum:
-  - `laf`
-  - `lab`
-- designed to extend later into:
-  - room
-  - rack
-  - cage zone
-  - facility location
+- `OWNER` cannot be silently replaced by an admin
+- `isOwner` and `isProtected` are explicit in the user model
+- local session state is stored separately from account records
+- owner-level actions are intentionally narrower and more protected than admin actions
+
+The recovery flow is still not final. That should be treated as security-sensitive future work, not rushed UI.
+
+## Housing design
+
+`housing_type` is required on each mouse and currently supports:
+
+- `LAF`
+- `LAB`
+
+This is intentionally designed to extend later into:
+
+- room
+- rack
+- cage zone
+- facility location
+
+## Sync design
+
+The current sync architecture is local-first, not cloud-first:
+
+- phones collect and use data locally
+- the Mac app acts as a trusted hub
+- data can move through export/import bundles
+- same-Wi-Fi QR pairing allows a phone to import from the Mac hub over LAN
+
+This is appropriate for a small lab starting point. The next major system-design upgrade is conflict-safe multi-user sync for several active devices.
+
+## Current source location
+
+See:
+
+- `/Users/sonny03/Documents/MiceManager/apps/mice_manager_flutter`

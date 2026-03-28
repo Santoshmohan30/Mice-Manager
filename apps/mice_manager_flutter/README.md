@@ -1,43 +1,71 @@
-# Mice Manager Flutter Scaffold
+# Mice Manager Flutter App
 
-This is the Phase 1 scaffold for the offline-first cross-platform version of Mice Manager.
+This folder contains the offline-first Flutter version of Mice Manager for:
 
-## Targets
+- macOS desktop
+- Android field use
 
-- macOS desktop app (`.app`)
-- Android field app (`.apk` / `.aab`)
+The goal of this app is straightforward:
+- macOS acts as the local hub
+- Android acts as the day-to-day lab device
+- both stay usable offline with local SQLite storage
 
-## Current phase
+## Current status
 
-Phase 1 provides:
+This is no longer just a starter scaffold. The app now includes working feature slices for:
 
-- shared domain models
-- owner-protected authorization design
-- housing type separation (`LAF` / `LAB`)
-- repository and service abstractions
-- platform adapter interfaces for OCR and updates
-- a simple Flutter shell UI
+- local sign-in and role-aware session handling
+- owner-protected account model
+- mice add, edit, delete, duplicate protection, and age calculation
+- `LAF` / `LAB` housing separation
+- breeding and procedures
+- date-based task tracking and weaning workflow support
+- offline OCR intake on Android
+- OCR history with archive and restore
+- local CSV export
+- JSON sync bundle export/import
+- same-Wi-Fi Mac hub QR sync flow
+- Android APK builds
+- macOS `.app` builds
 
-## Not finished in Phase 1
+## Still in progress
 
-- real SQLite persistence
-- Android on-device OCR integration
-- macOS local OCR integration
-- local/LAN sync bundle transfer
-- Android update package installation
-- secure owner recovery key flow
+The direction is solid, but a few areas still need another pass before this should be treated as a finished team product:
 
-## Run
+- stronger multi-user conflict handling
+- secure owner recovery flow
+- richer macOS hub-side sync management
+- more complete analytics views
+- tighter OCR tuning for real lab card layouts
 
-Install Flutter first, then from this folder:
+## Run locally
+
+From this folder:
 
 ```bash
 flutter pub get
+```
+
+Run on macOS:
+
+```bash
 flutter run -d macos
 ```
 
-or:
+Run on Android:
 
 ```bash
 flutter run -d android
+```
+
+Build macOS:
+
+```bash
+flutter build macos
+```
+
+Build Android APK:
+
+```bash
+flutter build apk
 ```
