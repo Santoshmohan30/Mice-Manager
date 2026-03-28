@@ -1,5 +1,8 @@
 import csv
+import base64
 import io
+import json
+import logging
 import os
 import re
 import secrets
@@ -10,6 +13,7 @@ from datetime import date, datetime, timedelta
 from functools import wraps
 from pathlib import Path
 
+from sqlalchemy import inspect
 from flask import (
     Flask,
     Response,
@@ -25,28 +29,58 @@ from flask import (
 )
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from markupsafe import Markup
-from PIL import Image, ImageOps
+from PIL import Image, ImageFilter, ImageOps, ImageStat
+from sqlalchemy.exc import OperationalError
 from werkzeug.security import check_password_hash, generate_password_hash
 
+from config import Config
 from extensions import db, migrate
+from routes import health_blueprint
+from services import ScanService
 
 
 app = Flask(__name__)
-database_url = os.environ.get("DATABASE_URL", "sqlite:///mice.db")
-if database_url.startswith("postgres://"):
-    database_url = database_url.replace("postgres://", "postgresql://", 1)
-app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "mice-secret-key")
-app.config["SQLALCHEMY_DATABASE_URI"] = database_url
-app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-app.config["SESSION_COOKIE_HTTPONLY"] = True
-app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-app.config["SESSION_COOKIE_SECURE"] = False
-app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=8)
+app.config.from_object(Config)
+
+logging.basicConfig(
+    level=getattr(logging, app.config["LOG_LEVEL"], logging.INFO),
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
 
 db.init_app(app)
 migrate.init_app(app, db)
+app.register_blueprint(health_blueprint)
 
 from models import AuditLog, Breeding, CalendarEvent, CageTransfer, Mouse, Procedure, Pup, User, Weight
+
+DEFAULT_ROOM = app.config["DEFAULT_ROOM"]
+DEFAULT_PROTOCOL_NUMBER = app.config["DEFAULT_PROTOCOL_NUMBER"]
+DEFAULT_OWNER_PI = app.config["DEFAULT_OWNER_PI"]
+
+STRAIN_ALIASES = {
+    "CALB1": "Calb1-IRES-Cre",
+    "CALBI": "Calb1-IRES-Cre",
+    "CALV1": "Calb1-IRES-Cre",
+    "CALV": "Calb1-IRES-Cre",
+    "CALB": "Calb1-IRES-Cre",
+    "IRSCRE": "Calb1-IRES-Cre",
+    "IRESCRE": "Calb1-IRES-Cre",
+    "C1QL2": "C1ql2-RES-Cre",
+    "CIQL2": "C1ql2-RES-Cre",
+    "C1QL": "C1ql2-RES-Cre",
+    "TNNT1": "Tnnt1-IRES-CreERT2",
+    "TNNT": "Tnnt1-IRES-CreERT2",
+    "TNT": "Tnnt1-IRES-CreERT2",
+    "CREERT2": "Tnnt1-IRES-CreERT2",
+    "NPSR1": "Npsr1-IRES-Flp",
+    "NPSR": "Npsr1-IRES-Flp",
+    "FLP": "Npsr1-IRES-Flp",
+    "C57/BL": "C57/BL",
+    "C57BL": "C57/BL",
+    "C57 BL": "C57/BL",
+    "C57BL6": "C57/BL",
+    "C57 BL6": "C57/BL",
+}
 
 
 def token_serializer():
@@ -87,7 +121,7 @@ def csrf_input():
 
 
 def inject_now():
-    return {"now": datetime.now, "csrf_input": csrf_input}
+    return {"now": datetime.now, "csrf_input": csrf_input, "display_date_us": display_date_us}
 
 
 app.context_processor(inject_now)
@@ -116,6 +150,7 @@ CANONICAL_LABELS = {
     "CALB1 IRES CRE": "Calb1-IRES-Cre",
     "NPSR1 IRES FLP": "Npsr1-IRES-Flp",
     "TNNT1 IRES CREERT2": "Tnnt1-IRES-CreERT2",
+    "C57 BL": "C57/BL",
     "AAV": "AAV",
     "AAV GCAMP": "AAV-GCaMP",
     "AAV GPMCA2": "AAV-GPMCA2",
@@ -259,19 +294,31 @@ def log_action(action, entity_type, entity_id, details=""):
     )
 
 
+def table_columns(table_name):
+    return {column["name"] for column in inspect(db.engine).get_columns(table_name)}
+
+
 def ensure_user_schema():
+    def safe_add_column(connection, statement):
+        try:
+            connection.exec_driver_sql(statement)
+        except OperationalError as error:
+            message = str(error).lower()
+            if "duplicate column name" not in message and "already exists" not in message and "duplicate_column" not in message:
+                raise
+
     with db.engine.begin() as connection:
-        columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(user)").fetchall()}
+        columns = table_columns("user")
         if "must_change_password" not in columns:
-            connection.exec_driver_sql("ALTER TABLE user ADD COLUMN must_change_password BOOLEAN")
+            safe_add_column(connection, 'ALTER TABLE "user" ADD COLUMN must_change_password BOOLEAN')
             connection.exec_driver_sql("UPDATE user SET must_change_password = 0 WHERE must_change_password IS NULL")
         if "failed_login_attempts" not in columns:
-            connection.exec_driver_sql("ALTER TABLE user ADD COLUMN failed_login_attempts INTEGER")
+            safe_add_column(connection, 'ALTER TABLE "user" ADD COLUMN failed_login_attempts INTEGER')
             connection.exec_driver_sql("UPDATE user SET failed_login_attempts = 0 WHERE failed_login_attempts IS NULL")
         if "locked_until" not in columns:
-            connection.exec_driver_sql("ALTER TABLE user ADD COLUMN locked_until VARCHAR(30)")
+            safe_add_column(connection, 'ALTER TABLE "user" ADD COLUMN locked_until VARCHAR(30)')
         if "last_login_at" not in columns:
-            connection.exec_driver_sql("ALTER TABLE user ADD COLUMN last_login_at VARCHAR(30)")
+            safe_add_column(connection, 'ALTER TABLE "user" ADD COLUMN last_login_at VARCHAR(30)')
 
 
 @app.before_request
@@ -401,6 +448,17 @@ def serialize_mouse(mouse):
         "notes": mouse.notes or "",
         "training": bool(mouse.training),
         "project": mouse.project or "",
+        "owner_pi": mouse.owner_pi or "",
+        "protocol_number": mouse.protocol_number or "",
+        "animal_count": mouse.animal_count if mouse.animal_count is not None else "",
+        "received_date": mouse.received_date or "",
+        "vendor": mouse.vendor or "",
+        "age": mouse.age or "",
+        "weight": mouse.weight or "",
+        "species": mouse.species or "",
+        "room": mouse.room or "",
+        "requisition_number": mouse.requisition_number or "",
+        "cost_center": mouse.cost_center or "",
         "is_active": bool(mouse.is_active),
         "deleted_at": mouse.deleted_at or "",
     }
@@ -428,195 +486,381 @@ def mouse_choices():
 
 def mouse_label_options():
     return {
-        "genetic_strain": ["C1ql2-RES-Cre", "Calb1-IRES-Cre", "Npsr1-IRES-Flp", "Tnnt1-IRES-CreERT2"],
+        "genetic_strain": ["C1ql2-RES-Cre", "Calb1-IRES-Cre", "Npsr1-IRES-Flp", "Tnnt1-IRES-CreERT2", "C57/BL"],
         "procedure_cohort": ["AAV", "AAV-GCaMP", "AAV-GPMCA2", "AAV-MIX-G2-1", "AAV-MIX-G2-2", "AAV-MIX-G2-3", "DOUBLE IMPLANT", "EEG-IMPLANT", "IMPLANT"],
     }
 
 
+def calculate_age_from_dob(dob_value):
+    normalized = normalize_date(dob_value)
+    if not normalized:
+        return ""
+    try:
+        born = datetime.strptime(normalized, "%Y-%m-%d").date()
+    except ValueError:
+        return ""
+    delta_days = max(0, (date.today() - born).days)
+    if delta_days == 1:
+        return "1 day"
+    return f"{delta_days} days"
+
+
+def display_date_us(value):
+    normalized = normalize_date(value)
+    if not normalized:
+        return normalize_text_value(value)
+    try:
+        parsed = datetime.strptime(normalized, "%Y-%m-%d")
+    except ValueError:
+        return normalized
+    return parsed.strftime("%m/%d/%Y")
+
+
+_scan_service = None
+
+
+def get_scan_service():
+    global _scan_service
+    if _scan_service is None:
+        _scan_service = ScanService(
+            config=app.config,
+            logger=app.logger,
+            mouse_label_options=mouse_label_options,
+            canonical_mouse_label=canonical_mouse_label,
+            infer_group_type_from_label=infer_group_type_from_label,
+            normalize_date=normalize_date,
+            normalize_gender=normalize_gender,
+            normalize_species=normalize_species,
+            normalize_text_value=normalize_text_value,
+            calculate_age_from_dob=calculate_age_from_dob,
+            display_date_us=display_date_us,
+            defaults={
+                "room": DEFAULT_ROOM,
+                "protocol_number": DEFAULT_PROTOCOL_NUMBER,
+                "owner_pi": DEFAULT_OWNER_PI,
+            },
+            strain_aliases=STRAIN_ALIASES,
+        )
+    return _scan_service
+
+
 def apply_mouse_form(mouse, form):
-    mouse.group_type = form.get("group_type", "").strip() or infer_group_type_from_label(form["strain"])
+    mouse.group_type = infer_group_type_from_label(form["strain"])
     mouse.strain = canonical_mouse_label(form["strain"].strip(), mouse.group_type)
-    mouse.gender = form["gender"].strip().upper()
-    mouse.genotype = form["genotype"].strip()
-    mouse.dob = form["dob"]
-    mouse.cage = form["cage"].strip()
+    mouse.gender = normalize_gender(form.get("gender", ""))
+    mouse.genotype = form.get("genotype", "").strip()
+    mouse.dob = normalize_date(form.get("dob", ""))
+    mouse.cage = normalize_text_value(form.get("cage", ""))
     mouse.rack_location = form.get("rack_location", "").strip()
     mouse.notes = form.get("notes", "").strip()
     mouse.training = form.get("training") in {"on", "true", "True", True}
     mouse.project = form.get("project", "").strip()
+    mouse.owner_pi = form.get("owner_pi", "").strip()
+    mouse.protocol_number = DEFAULT_PROTOCOL_NUMBER
+    animal_count = form.get("animal_count", "").strip()
+    mouse.animal_count = int(animal_count) if animal_count.isdigit() else None
+    mouse.received_date = normalize_date(form.get("received_date", ""))
+    mouse.vendor = None
+    mouse.age = calculate_age_from_dob(mouse.dob)
+    mouse.weight = None
+    mouse.species = normalize_species(form.get("species", "")) or "Mouse"
+    mouse.room = DEFAULT_ROOM
+    mouse.requisition_number = normalize_text_value(form.get("requisition_number", ""))
+    mouse.cost_center = normalize_text_value(form.get("cost_center", ""))
 
 
-def extract_cage_card_fields(raw_text):
-    text = (raw_text or "").strip()
-    normalized = normalize_label(text)
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
+def normalize_text_value(value):
+    return re.sub(r"\s+", " ", (value or "").strip()).strip(" ,.:;|-")
 
-    def first_group(patterns):
-        for pattern in patterns:
-            match = re.search(pattern, text, flags=re.IGNORECASE)
-            if match:
-                return match.group(1).strip()
+
+def normalize_gender(value):
+    cleaned = normalize_label(value)
+    if cleaned in {"M", "MALE"}:
+        return "MALE"
+    if cleaned in {"F", "FEMALE"}:
+        return "FEMALE"
+    return "UNKNOWN" if cleaned else ""
+
+
+def normalize_species(value):
+    cleaned = normalize_label(value).replace(" ", "")
+    if cleaned in {"MOUSE", "VMOUSE", "VMIOUSE"}:
+        return "Mouse"
+    return normalize_text_value(value)
+
+
+def normalize_boolean(value):
+    cleaned = normalize_label(value)
+    if cleaned in {"YES", "Y", "TRUE", "1", "TRAINING"}:
+        return True
+    if cleaned in {"NO", "N", "FALSE", "0"}:
+        return False
+    return None
+
+
+def normalize_date(value):
+    raw = normalize_text_value(value)
+    if not raw:
         return ""
+    patterns = [
+        "%Y-%m-%d",
+        "%m/%d/%Y",
+        "%m/%d/%y",
+        "%m-%d-%Y",
+        "%m-%d-%y",
+    ]
+    for pattern in patterns:
+        try:
+            return datetime.strptime(raw, pattern).date().isoformat()
+        except ValueError:
+            continue
+    return ""
 
-    strain = ""
-    detected_group_type = ""
+
+SCAN_FIELD_SPECS = [
+    ("strain", ["STRAIN"], "text"),
+    ("gender", ["GENDER", "SEX"], "gender"),
+    ("genotype", ["GENOTYPE", "GT"], "text"),
+    ("dob", ["DOB", "DATE OF BIRTH", "BORN"], "date"),
+    ("cage", ["CAGE", "CAGE NUMBER", "CAGE NO", "BOX"], "text"),
+    ("rack_location", ["RACK", "RACK LOCATION"], "text"),
+    ("owner_pi", ["OWNER", "PI", "LAB CONTACT", "INVESTIGATOR"], "text"),
+    ("protocol_number", ["PROTOCOL", "PROTOCOL NUMBER", "IACUC"], "text"),
+    ("age", ["AGE"], "text"),
+    ("room", ["ROOM"], "text"),
+    ("requisition_number", ["REQUISITION NUMBER", "REQUISITION"], "text"),
+    ("notes", ["NOTES"], "text"),
+]
+
+
+def empty_scan_field():
+    return {"value": "", "confidence": 0.0, "source": "none"}
+
+
+def set_scan_field(fields, key, value, confidence, source):
+    value = value if not isinstance(value, str) else normalize_text_value(value)
+    if value in {None, ""}:
+        return
+    if confidence > fields[key]["confidence"]:
+        fields[key] = {"value": value, "confidence": round(confidence, 2), "source": source}
+
+
+def clean_ocr_text(text):
+    return "\n".join(normalize_text_value(line) for line in (text or "").splitlines() if normalize_text_value(line))
+
+
+def normalize_scan_value(field, value):
+    raw = normalize_text_value(value)
+    if not raw:
+        return ""
+    if field == "dob":
+        return normalize_date(raw)
+    if field == "gender":
+        return normalize_gender(raw)
+    if field == "strain":
+        return canonical_mouse_label(raw)
+    if field == "cage":
+        return raw.replace(" ", "")
+    return raw
+
+
+def infer_known_strain_from_text(text):
+    return get_scan_service().infer_known_strain_from_text(text)
+
+
+def extract_label_value_pairs(lines):
+    pairs = []
+    normalized_labels = {}
+    for field, labels, _kind in SCAN_FIELD_SPECS:
+        for label in labels:
+            normalized_labels[normalize_label(label)] = (field, label)
+
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        normalized_line = normalize_label(stripped)
+        for normalized_label, (field, original_label) in sorted(normalized_labels.items(), key=lambda item: len(item[0]), reverse=True):
+            if normalized_line.startswith(normalized_label):
+                remainder = stripped[len(original_label):].strip(" :.-")
+                if remainder:
+                    pairs.append((field, remainder, index))
+                    break
+            if ":" in stripped:
+                label_part, value_part = stripped.split(":", 1)
+                if normalize_label(label_part) == normalized_label and value_part.strip():
+                    pairs.append((field, value_part.strip(), index))
+                    break
+    return pairs
+
+
+def infer_fields_from_text(text, source, base_confidence):
+    fields = {field: empty_scan_field() for field, _labels, _kind in SCAN_FIELD_SPECS}
+    cleaned_text = clean_ocr_text(text)
+    lines = cleaned_text.splitlines()
+
+    for field, value, _index in extract_label_value_pairs(lines):
+        normalized_value = normalize_scan_value(field, value)
+        confidence = base_confidence + 0.18
+        if normalized_value:
+            set_scan_field(fields, field, normalized_value, min(confidence, 0.98), f"{source}_label_match")
+
+    full_text = cleaned_text.upper()
     for canonical in mouse_label_options()["genetic_strain"]:
-        if normalize_label(canonical) in normalized:
-            strain = canonical
-            detected_group_type = "genetic_strain"
-            break
-    if not strain:
-        for canonical in mouse_label_options()["procedure_cohort"]:
-            if normalize_label(canonical) in normalized:
-                strain = canonical
-                detected_group_type = "procedure_cohort"
-                break
+        if normalize_label(canonical) in full_text:
+            set_scan_field(fields, "strain", canonical, 0.96, "rule_match")
+    for canonical in mouse_label_options()["procedure_cohort"]:
+        if normalize_label(canonical) in full_text:
+            set_scan_field(fields, "strain", canonical, 0.94, "rule_match")
+    inferred_strain = infer_known_strain_from_text(cleaned_text)
+    if inferred_strain:
+        set_scan_field(fields, "strain", inferred_strain, 0.95, "alias_match")
 
-    gender = first_group([r"\b(?:SEX|GENDER)\s*[:\-]?\s*(MALE|FEMALE|M|F)\b"])
-    if not gender:
-        if re.search(r"\bFEMALE\b|\bSEX\s*[:\-]?\s*F\b|\bGENDER\s*[:\-]?\s*F\b", text, flags=re.IGNORECASE):
-            gender = "FEMALE"
-        elif re.search(r"\bMALE\b|\bSEX\s*[:\-]?\s*M\b|\bGENDER\s*[:\-]?\s*M\b", text, flags=re.IGNORECASE):
-            gender = "MALE"
-    if gender.upper() == "M":
-        gender = "MALE"
-    elif gender.upper() == "F":
-        gender = "FEMALE"
+    if re.search(r"\bMALE\b|\bSEX\s*[:\-]?\s*M\b|\bGENDER\s*[:\-]?\s*M\b", cleaned_text, flags=re.IGNORECASE):
+        set_scan_field(fields, "gender", "MALE", 0.9, "rule_match")
+    if re.search(r"\bFEMALE\b|\bSEX\s*[:\-]?\s*F\b|\bGENDER\s*[:\-]?\s*F\b", cleaned_text, flags=re.IGNORECASE):
+        set_scan_field(fields, "gender", "FEMALE", 0.9, "rule_match")
 
-    genotype = first_group(
-        [
-            r"\bGENOTYPE\s*[:\-]?\s*([A-Za-z0-9+\/ _-]+)",
-            r"\bGT\s*[:\-]?\s*([A-Za-z0-9+\/ _-]+)",
-        ]
-    )
-    dob = first_group(
-        [
-            r"\bDOB\s*[:\-]?\s*([0-9]{4}-[0-9]{2}-[0-9]{2})\b",
-            r"\bDOB\s*[:\-]?\s*([0-9]{2}/[0-9]{2}/[0-9]{4})\b",
-            r"\bBORN\s*[:\-]?\s*([0-9]{4}-[0-9]{2}-[0-9]{2})\b",
-        ]
-    )
-    if dob and "/" in dob:
-        month, day, year = dob.split("/")
-        dob = f"{year}-{month.zfill(2)}-{day.zfill(2)}"
+    genotype_match = re.search(r"\b(?:GENOTYPE|GT)\s*[:\-]?\s*([A-Z0-9+/_. -]+)", cleaned_text, flags=re.IGNORECASE)
+    if genotype_match:
+        set_scan_field(fields, "genotype", genotype_match.group(1), 0.84, "rule_match")
 
-    cage = first_group(
-        [
-            r"\bCAGE(?:\s*(?:NO|NUMBER|#))?\s*[:\-]?\s*([A-Za-z0-9-]+)\b",
-            r"\bBOX(?:\s*(?:NO|NUMBER|#))?\s*[:\-]?\s*([A-Za-z0-9-]+)\b",
-        ]
-    )
-    rack_location = first_group(
-        [
-            r"\bRACK(?:\s*LOCATION)?\s*[:\-]?\s*([A-Za-z0-9._ -]+)",
-            r"\bROOM\/RACK\s*[:\-]?\s*([A-Za-z0-9._ -]+)",
-        ]
-    )
-    project = first_group(
-        [
-            r"\bPROJECT\s*[:\-]?\s*([A-Za-z0-9._ -]+)",
-            r"\bSTUDY\s*[:\-]?\s*([A-Za-z0-9._ -]+)",
-        ]
-    )
-    mouse_id_text = first_group(
-        [
-            r"\bMOUSE(?:\s*ID|#)?\s*[:\-]?\s*([0-9]+)\b",
-            r"\bID\s*[:\-]?\s*([0-9]+)\b",
-        ]
-    )
-    training = bool(re.search(r"\bTRAINING\b", text, flags=re.IGNORECASE))
+    date_matches = re.findall(r"\b(?:\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\b", cleaned_text)
+    if date_matches and not fields["dob"]["value"]:
+        normalized_date = normalize_date(date_matches[0])
+        if normalized_date:
+            set_scan_field(fields, "dob", normalized_date, 0.72, "ocr")
 
-    if not strain:
-        for line in lines:
-            candidate = canonical_mouse_label(line)
-            if candidate in mouse_label_options()["genetic_strain"] or candidate in mouse_label_options()["procedure_cohort"]:
-                strain = candidate
-                detected_group_type = infer_group_type_from_label(candidate)
-                break
+    cc_cage_matches = re.findall(r"\bCC00[A-Z0-9-]*\d\b", cleaned_text, flags=re.IGNORECASE)
+    if cc_cage_matches:
+        set_scan_field(fields, "cage", cc_cage_matches[-1].upper(), 0.99, "lab_rule")
 
-    if not detected_group_type and strain:
-        detected_group_type = infer_group_type_from_label(strain)
+    cage_match = re.search(r"\b(?:CAGE(?: NUMBER| NO)?|BOX)\s*[:#\-]?\s*([A-Z0-9-]+)\b", cleaned_text, flags=re.IGNORECASE)
+    if cage_match:
+        set_scan_field(fields, "cage", cage_match.group(1), 0.88, "rule_match")
 
-    notes = ""
-    if lines:
-        notes = " | ".join(lines[:4])[:250]
+    rack_match = re.search(r"\bRACK(?: LOCATION)?\s*[:\-]?\s*([A-Z0-9- ]+)\b", cleaned_text, flags=re.IGNORECASE)
+    if rack_match:
+        set_scan_field(fields, "rack_location", rack_match.group(1), 0.84, "rule_match")
 
-    warnings = []
-    if not cage:
-        warnings.append("Cage number was not detected clearly.")
-    if not strain:
-        warnings.append("Strain or procedure cohort was not detected clearly.")
-    if not dob:
-        warnings.append("DOB was not detected clearly.")
-    if not gender:
-        warnings.append("Sex or gender was not detected clearly.")
+    owner_match = re.search(r"\b(?:LAB CONTACT|OWNER|PI)\s*[:\-]?\s*([A-Z ,.-]+)", cleaned_text, flags=re.IGNORECASE)
+    if owner_match:
+        set_scan_field(fields, "owner_pi", owner_match.group(1), 0.9, "label_match")
+    elif re.search(r"\bDHEERAJ\b", cleaned_text, flags=re.IGNORECASE) and re.search(r"\bROY\b", cleaned_text, flags=re.IGNORECASE):
+        set_scan_field(fields, "owner_pi", DEFAULT_OWNER_PI, 0.9, "rule_match")
 
-    return {
-        "raw_text": text,
-        "mouse_id": int(mouse_id_text) if mouse_id_text.isdigit() else None,
-        "editor": {
-            "strain": strain,
-            "group_type": detected_group_type or "genetic_strain",
-            "gender": gender,
-            "genotype": genotype,
-            "dob": dob,
-            "cage": cage,
-            "rack_location": rack_location,
-            "project": project,
-            "notes": notes,
-            "training": training,
-        },
-        "warnings": warnings,
-    }
+    requisition_match = re.search(r"\b\d{6}\s+[A-Z]{2,5}\d{4,6}-\d+\b", cleaned_text, flags=re.IGNORECASE)
+    if requisition_match:
+        set_scan_field(fields, "requisition_number", requisition_match.group(0).upper(), 0.95, "rule_match")
+    else:
+        requisition_match = re.search(r"\b20\d{6,}\b", cleaned_text)
+        if requisition_match:
+            set_scan_field(fields, "requisition_number", requisition_match.group(0), 0.9, "rule_match")
+
+    room_match = re.search(r"\bB2126\s+JSMBS\b", cleaned_text, flags=re.IGNORECASE)
+    if room_match:
+        set_scan_field(fields, "room", DEFAULT_ROOM, 0.99, "rule_match")
+
+    return fields
+
+
+def merge_scan_fields(*field_maps):
+    merged = {field: empty_scan_field() for field, _labels, _kind in SCAN_FIELD_SPECS}
+    for field_map in field_maps:
+        for key, payload in field_map.items():
+            if payload["confidence"] > merged[key]["confidence"]:
+                merged[key] = payload
+    if merged["gender"]["value"] not in {"MALE", "FEMALE", "UNKNOWN", ""}:
+        merged["gender"] = empty_scan_field()
+    return merged
+
+
+def extract_cage_card_fields(raw_text, diagnostics=None):
+    return get_scan_service().extract_cage_card_fields(raw_text, diagnostics=diagnostics)
+
+
+def image_to_data_url(image, format_name="PNG"):
+    return get_scan_service().image_to_data_url(image, format_name=format_name)
+
+
+def analyze_image_quality(image):
+    return get_scan_service().analyze_image_quality(image)
+
+
+def preprocess_ocr_image(image):
+    return get_scan_service().preprocess_ocr_image(image)
+
+
+def score_ocr_text(text):
+    return get_scan_service().score_ocr_text(text)
+
+
+VISION_OCR_SCRIPT = Path(__file__).parent / "tools" / "vision_ocr.swift"
+VISION_OCR_BINARY = Path(__file__).parent / "tools" / ".cache" / "vision_ocr"
+
+
+def macos_sdk_path():
+    return get_scan_service().macos_sdk_path()
+
+
+def ensure_compiled_vision_ocr():
+    return get_scan_service().ensure_compiled_vision_ocr()
+
+
+def run_vision_ocr_on_image(path):
+    return get_scan_service().run_vision_ocr_on_image(path)
+
+
+def run_tesseract_on_image(path, psm_mode):
+    return get_scan_service().run_tesseract_on_image(path, psm_mode)
 
 
 def ocr_uploaded_image(file_storage):
-    if not file_storage or not getattr(file_storage, "filename", ""):
-        raise ValueError("No image was uploaded.")
-
-    with Image.open(file_storage.stream) as image:
-        cleaned = ImageOps.exif_transpose(image).convert("L")
-        cleaned = ImageOps.autocontrast(cleaned)
-        cleaned = cleaned.resize((cleaned.width * 2, cleaned.height * 2))
-
-        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temp_image:
-            temp_path = Path(temp_image.name)
-        try:
-            cleaned.save(temp_path)
-            result = subprocess.run(
-                [
-                    "/opt/homebrew/bin/tesseract",
-                    str(temp_path),
-                    "stdout",
-                    "--psm",
-                    "6",
-                ],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            if result.returncode != 0:
-                raise RuntimeError(result.stderr.strip() or "OCR could not read the image.")
-            text = result.stdout.strip()
-            if not text:
-                raise RuntimeError("OCR did not find readable text on this card.")
-            return text
-        finally:
-            temp_path.unlink(missing_ok=True)
+    return get_scan_service().ocr_uploaded_image(file_storage)
 
 
 def ensure_mouse_schema():
+    def safe_add_column(connection, column_name, statement):
+        try:
+            connection.exec_driver_sql(statement)
+        except OperationalError as error:
+            message = str(error).lower()
+            if "duplicate column name" not in message and "already exists" not in message and "duplicate_column" not in message:
+                raise
+
     with db.engine.begin() as connection:
-        columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(mouse)").fetchall()}
+        columns = table_columns("mouse")
         if "rack_location" not in columns:
-            connection.exec_driver_sql("ALTER TABLE mouse ADD COLUMN rack_location VARCHAR(50)")
+            safe_add_column(connection, "rack_location", "ALTER TABLE mouse ADD COLUMN rack_location VARCHAR(50)")
         if "group_type" not in columns:
-            connection.exec_driver_sql("ALTER TABLE mouse ADD COLUMN group_type VARCHAR(30)")
+            safe_add_column(connection, "group_type", "ALTER TABLE mouse ADD COLUMN group_type VARCHAR(30)")
         if "is_active" not in columns:
-            connection.exec_driver_sql("ALTER TABLE mouse ADD COLUMN is_active BOOLEAN")
+            safe_add_column(connection, "is_active", "ALTER TABLE mouse ADD COLUMN is_active BOOLEAN")
             connection.exec_driver_sql("UPDATE mouse SET is_active = 1 WHERE is_active IS NULL")
         if "deleted_at" not in columns:
-            connection.exec_driver_sql("ALTER TABLE mouse ADD COLUMN deleted_at VARCHAR(30)")
+            safe_add_column(connection, "deleted_at", "ALTER TABLE mouse ADD COLUMN deleted_at VARCHAR(30)")
+        if "owner_pi" not in columns:
+            safe_add_column(connection, "owner_pi", "ALTER TABLE mouse ADD COLUMN owner_pi VARCHAR(120)")
+        if "protocol_number" not in columns:
+            safe_add_column(connection, "protocol_number", "ALTER TABLE mouse ADD COLUMN protocol_number VARCHAR(60)")
+        if "animal_count" not in columns:
+            safe_add_column(connection, "animal_count", "ALTER TABLE mouse ADD COLUMN animal_count INTEGER")
+        if "received_date" not in columns:
+            safe_add_column(connection, "received_date", "ALTER TABLE mouse ADD COLUMN received_date VARCHAR(20)")
+        if "vendor" not in columns:
+            safe_add_column(connection, "vendor", "ALTER TABLE mouse ADD COLUMN vendor VARCHAR(120)")
+        if "age" not in columns:
+            safe_add_column(connection, "age", "ALTER TABLE mouse ADD COLUMN age VARCHAR(40)")
+        if "weight" not in columns:
+            safe_add_column(connection, "weight", "ALTER TABLE mouse ADD COLUMN weight VARCHAR(40)")
+        if "species" not in columns:
+            safe_add_column(connection, "species", "ALTER TABLE mouse ADD COLUMN species VARCHAR(40)")
+        if "room" not in columns:
+            safe_add_column(connection, "room", "ALTER TABLE mouse ADD COLUMN room VARCHAR(80)")
+        if "requisition_number" not in columns:
+            safe_add_column(connection, "requisition_number", "ALTER TABLE mouse ADD COLUMN requisition_number VARCHAR(60)")
+        if "cost_center" not in columns:
+            safe_add_column(connection, "cost_center", "ALTER TABLE mouse ADD COLUMN cost_center VARCHAR(80)")
 
 
 def normalize_existing_mouse_data():
@@ -1141,9 +1385,22 @@ def mice_list():
 @app.route("/scan-cage-card", methods=["GET", "POST"])
 @login_required
 def scan_cage_card():
-    parsed = None
+    scan_result = None
     matches = []
     raw_text = ""
+    image_preview = ""
+    processed_preview = ""
+    scan_mode = request.values.get("scan_mode", "create").strip() or "create"
+    if scan_mode not in {"create", "archive"}:
+        scan_mode = "create"
+    created_mouse = None
+    archived_mouse = None
+    created_id = str(request.args.get("created_mouse_id") or "").strip()
+    archived_id = str(request.args.get("archived_mouse_id") or "").strip()
+    if created_id.isdigit():
+        created_mouse = Mouse.query.get(int(created_id))
+    if archived_id.isdigit():
+        archived_mouse = Mouse.query.get(int(archived_id))
 
     if request.method == "POST":
         raw_text = request.form.get("raw_text", "").strip()
@@ -1151,20 +1408,30 @@ def scan_cage_card():
 
         if image_file and getattr(image_file, "filename", ""):
             try:
-                raw_text = ocr_uploaded_image(image_file)
+                started_at = datetime.now()
+                app.logger.info("Starting cage-card OCR for filename=%s mode=%s", image_file.filename, scan_mode)
+                ocr_result = ocr_uploaded_image(image_file)
+                raw_text = ocr_result["raw_text"]
+                image_preview = ocr_result["original_preview"]
+                processed_preview = ocr_result["processed_preview"]
+                scan_result = extract_cage_card_fields(raw_text, diagnostics=ocr_result["diagnostics"])
+                elapsed = (datetime.now() - started_at).total_seconds()
+                app.logger.info("Finished cage-card OCR in %.2fs using engine=%s", elapsed, ocr_result["diagnostics"].get("ocr_engine", "unknown"))
             except Exception as error:
+                app.logger.exception("Cage-card OCR failed")
                 flash(str(error), "danger")
 
         if raw_text:
-            parsed = extract_cage_card_fields(raw_text)
-            if parsed["mouse_id"]:
-                mouse = Mouse.query.get(parsed["mouse_id"])
+            if scan_result is None:
+                scan_result = extract_cage_card_fields(raw_text)
+            if scan_result["mouse_id"]:
+                mouse = Mouse.query.get(scan_result["mouse_id"])
                 if mouse:
                     matches = [mouse]
-            elif parsed["editor"]["cage"]:
+            elif scan_result["editor"]["cage"]:
                 matches = (
                     active_mouse_query()
-                    .filter(Mouse.cage == parsed["editor"]["cage"])
+                    .filter(Mouse.cage == scan_result["editor"]["cage"])
                     .order_by(Mouse.id.desc())
                     .all()
                 )
@@ -1174,9 +1441,128 @@ def scan_cage_card():
     return render_template(
         "scan_cage_card.html",
         raw_text=raw_text,
-        parsed=parsed,
+        scan_result=scan_result,
         matches=matches,
+        image_preview=image_preview,
+        processed_preview=processed_preview,
+        scan_mode=scan_mode,
+        created_mouse=created_mouse,
+        archived_mouse=archived_mouse,
     )
+
+
+@app.route("/scan-cage-card/store", methods=["POST"])
+@login_required
+def store_scanned_mouse():
+    field_names = [
+        "strain",
+        "gender",
+        "genotype",
+        "dob",
+        "cage",
+        "rack_location",
+        "owner_pi",
+        "protocol_number",
+        "age",
+        "room",
+        "requisition_number",
+        "notes",
+    ]
+    values = {name: request.form.get(name, "") for name in field_names}
+    values["training"] = request.form.get("training", "")
+
+    warnings = []
+    if not values["strain"].strip():
+        warnings.append("Strain is required before storing.")
+    if not normalize_gender(values["gender"]):
+        warnings.append("Gender is required before storing.")
+    if not values["cage"].strip():
+        warnings.append("Cage is required before storing.")
+    if not values["rack_location"].strip():
+        warnings.append("Rack location is required before storing.")
+    if not values["requisition_number"].strip():
+        warnings.append("Requisition number is required before storing.")
+    if values["dob"] and not normalize_date(values["dob"]):
+        warnings.append("DOB must be a valid date before storing.")
+
+    if warnings:
+        for warning in warnings:
+            flash(warning, "danger")
+        return render_template(
+            "scan_cage_card.html",
+            raw_text=request.form.get("raw_text", ""),
+            scan_result={
+                "raw_text": request.form.get("raw_text", ""),
+                "overall_confidence": float(request.form.get("overall_confidence", "0") or 0),
+                "warnings": warnings,
+                "fields": {
+                    key: {
+                        "value": request.form.get("animal_count", "") if key == "number_of_animals" else request.form.get(key, ""),
+                        "confidence": float(request.form.get(f"{key}__confidence", "0") or 0),
+                        "source": request.form.get(f"{key}__source", "manual"),
+                    }
+                    for key, _labels, _kind in SCAN_FIELD_SPECS
+                },
+                "editor": {
+                    "strain": values["strain"],
+                    "gender": values["gender"],
+                    "genotype": values["genotype"],
+                    "dob": values["dob"],
+                    "cage": values["cage"],
+                    "rack_location": values["rack_location"],
+                    "age": values["age"],
+                    "room": values["room"],
+                    "requisition_number": values["requisition_number"],
+                    "notes": values["notes"],
+                    "group_type": infer_group_type_from_label(values["strain"]),
+                    "project": "",
+                    "owner_pi": values.get("owner_pi", "") or DEFAULT_OWNER_PI,
+                    "protocol_number": values["protocol_number"] or DEFAULT_PROTOCOL_NUMBER,
+                    "animal_count": None,
+                    "received_date": "",
+                    "vendor": "",
+                    "weight": "",
+                    "species": "Mouse",
+                    "cost_center": "",
+                    "training": False,
+                },
+            },
+            matches=[],
+            image_preview=request.form.get("image_preview", ""),
+            processed_preview=request.form.get("processed_preview", ""),
+            scan_mode=request.form.get("scan_mode", "create"),
+        )
+
+    new_mouse = Mouse()
+    apply_mouse_form(new_mouse, request.form)
+    db.session.add(new_mouse)
+    db.session.flush()
+    log_action("create", "mouse", new_mouse.id, f"Stored scanned mouse {new_mouse.strain} in cage {new_mouse.cage or 'unassigned'}")
+    db.session.commit()
+    flash(f"Scanned record stored as mouse #{new_mouse.id}.", "success")
+    return redirect(url_for("scan_cage_card", scan_mode="create", created_mouse_id=new_mouse.id))
+
+
+@app.route("/scan-cage-card/archive", methods=["POST"])
+@role_required("admin", "tech")
+def archive_scanned_mouse():
+    target_id = str(request.form.get("target_mouse_id") or "").strip()
+    scan_mode = request.form.get("scan_mode", "archive").strip() or "archive"
+    if not target_id.isdigit():
+        flash("Select a matching mouse before approving archive.", "danger")
+        return redirect(url_for("scan_cage_card", scan_mode=scan_mode))
+
+    mouse = active_mouse_query().filter_by(id=int(target_id)).first()
+    if mouse is None:
+        flash("That mouse could not be found or is already archived.", "danger")
+        return redirect(url_for("scan_cage_card", scan_mode=scan_mode))
+
+    mouse.is_active = False
+    mouse.deleted_at = datetime.now().isoformat(timespec="seconds")
+    log_action("archive", "mouse", mouse.id, f"Archived from scan review in cage {mouse.cage}")
+    db.session.commit()
+    flash(f"Archived mouse #{mouse.id} from cage {mouse.cage}.", "success")
+    return redirect(url_for("scan_cage_card", scan_mode="archive", archived_mouse_id=mouse.id))
 
 
 @app.route("/add_mouse", methods=["GET", "POST"])
@@ -1195,15 +1581,25 @@ def add_mouse():
     return render_template(
         "add_mouse.html",
         strain_prefill=request.args.get("strain", ""),
-        group_type_prefill=request.args.get("group_type", "genetic_strain"),
         gender_prefill=request.args.get("gender", "MALE"),
         genotype_prefill=request.args.get("genotype", ""),
-        dob_prefill=request.args.get("dob", ""),
+        dob_prefill=display_date_us(request.args.get("dob", "")),
         cage_prefill=request.args.get("cage", ""),
         rack_location_prefill=request.args.get("rack_location", ""),
-        project_prefill=request.args.get("project", ""),
+        project_prefill="",
+        owner_pi_prefill=request.args.get("owner_pi", "") or DEFAULT_OWNER_PI,
+        protocol_number_prefill=DEFAULT_PROTOCOL_NUMBER,
+        animal_count_prefill="",
+        received_date_prefill="",
+        vendor_prefill="",
+        age_prefill=request.args.get("age", "") or calculate_age_from_dob(request.args.get("dob", "")),
+        weight_prefill="",
+        species_prefill="Mouse",
+        room_prefill=DEFAULT_ROOM,
+        requisition_number_prefill=request.args.get("requisition_number", ""),
+        cost_center_prefill="",
         notes_prefill=request.args.get("notes", ""),
-        training_prefill=request.args.get("training", "").lower() in {"1", "true", "yes", "on"},
+        training_prefill=False,
         label_options=mouse_label_options(),
     )
 
@@ -1581,16 +1977,27 @@ def api_mice():
         return jsonify({"error": f"Missing fields: {', '.join(missing)}"}), 400
 
     mouse = Mouse(
-        group_type=(payload.get("group_type") or infer_group_type_from_label(payload["strain"])).strip(),
-        strain=canonical_mouse_label(payload["strain"].strip(), payload.get("group_type") or infer_group_type_from_label(payload["strain"])),
-        gender=payload["gender"].strip().upper(),
+        group_type=infer_group_type_from_label(payload["strain"]),
+        strain=canonical_mouse_label(payload["strain"].strip(), infer_group_type_from_label(payload["strain"])),
+        gender=normalize_gender(payload["gender"]),
         genotype=payload["genotype"].strip(),
-        dob=payload["dob"],
-        cage=payload["cage"].strip(),
+        dob=normalize_date(payload["dob"]) or payload["dob"],
+        cage=normalize_text_value(payload["cage"]),
         rack_location=(payload.get("rack_location") or "").strip() or None,
         notes=(payload.get("notes") or "").strip() or None,
         training=bool(payload.get("training")),
         project=(payload.get("project") or "").strip() or None,
+        owner_pi=(payload.get("owner_pi") or "").strip() or None,
+        protocol_number=DEFAULT_PROTOCOL_NUMBER,
+        animal_count=int(str(payload.get("animal_count") or "").strip()) if str(payload.get("animal_count") or "").strip().isdigit() else None,
+        received_date=normalize_date(payload.get("received_date") or "") or None,
+        vendor=None,
+        age=calculate_age_from_dob(payload["dob"]),
+        weight=None,
+        species=normalize_species(payload.get("species") or "") or "Mouse",
+        room=DEFAULT_ROOM,
+        requisition_number=normalize_text_value(payload.get("requisition_number") or "") or None,
+        cost_center=normalize_text_value(payload.get("cost_center") or "") or None,
     )
     db.session.add(mouse)
     db.session.commit()
@@ -1603,21 +2010,35 @@ def api_update_mouse(mouse_id):
     mouse = Mouse.query.get_or_404(mouse_id)
     payload = request.get_json(silent=True) or {}
 
-    for field in ["gender", "genotype", "dob", "cage", "rack_location", "notes", "project"]:
+    for field in ["gender", "genotype", "dob", "cage", "rack_location", "notes", "project", "owner_pi", "requisition_number", "cost_center"]:
         if field in payload and payload[field] is not None:
             value = payload[field].strip() if isinstance(payload[field], str) else payload[field]
             setattr(mouse, field, value)
-    if "group_type" in payload and payload["group_type"]:
-        mouse.group_type = str(payload["group_type"]).strip()
     if "strain" in payload and payload["strain"]:
+        mouse.group_type = infer_group_type_from_label(payload["strain"])
         mouse.strain = canonical_mouse_label(
             str(payload["strain"]).strip(),
-            mouse.group_type or infer_group_type_from_label(payload["strain"]),
+            mouse.group_type,
         )
     if "gender" in payload and payload["gender"]:
-        mouse.gender = str(payload["gender"]).strip().upper()
+        mouse.gender = normalize_gender(payload["gender"])
     if "training" in payload:
         mouse.training = bool(payload["training"])
+    if "animal_count" in payload:
+        value = str(payload.get("animal_count") or "").strip()
+        mouse.animal_count = int(value) if value.isdigit() else None
+    if "dob" in payload:
+        mouse.dob = normalize_date(payload.get("dob") or "") or str(payload.get("dob") or "")
+    if "cage" in payload:
+        mouse.cage = normalize_text_value(payload.get("cage") or "")
+    if "species" in payload:
+        mouse.species = normalize_species(payload.get("species") or "")
+    mouse.protocol_number = DEFAULT_PROTOCOL_NUMBER
+    mouse.room = DEFAULT_ROOM
+    mouse.vendor = None
+    mouse.weight = None
+    mouse.species = mouse.species or "Mouse"
+    mouse.age = calculate_age_from_dob(mouse.dob)
 
     db.session.commit()
     return jsonify(serialize_mouse(mouse))
@@ -1655,9 +2076,49 @@ def api_parse_cage_card():
     return jsonify(
         {
             "raw_text": parsed["raw_text"],
+            "fields": parsed["fields"],
+            "confidence": parsed["overall_confidence"],
+            "overall_confidence": parsed["overall_confidence"],
             "editor": parsed["editor"],
             "warnings": parsed["warnings"],
             "matches": [serialize_mouse(mouse) for mouse in matches],
+        }
+    )
+
+
+@app.route("/api/cage-card/scan-image", methods=["POST"])
+@api_login_required
+def api_scan_cage_card_image():
+    image_file = request.files.get("image")
+    if not image_file:
+        return jsonify({"error": "No image file was uploaded."}), 400
+
+    try:
+        ocr_result = ocr_uploaded_image(image_file)
+    except Exception as error:
+        return jsonify({"error": str(error)}), 400
+
+    parsed = extract_cage_card_fields(ocr_result["raw_text"], diagnostics=ocr_result["diagnostics"])
+    matches = []
+
+    if parsed["mouse_id"]:
+        mouse = Mouse.query.get(parsed["mouse_id"])
+        if mouse:
+            matches = [mouse]
+    elif parsed["editor"]["cage"]:
+        matches = active_mouse_query().filter(Mouse.cage == parsed["editor"]["cage"]).order_by(Mouse.id.desc()).all()
+
+    return jsonify(
+        {
+            "raw_text": parsed["raw_text"],
+            "fields": parsed["fields"],
+            "confidence": parsed["overall_confidence"],
+            "overall_confidence": parsed["overall_confidence"],
+            "editor": parsed["editor"],
+            "warnings": parsed["warnings"],
+            "matches": [serialize_mouse(mouse) for mouse in matches],
+            "image_preview": ocr_result["original_preview"],
+            "processed_preview": ocr_result["processed_preview"],
         }
     )
 

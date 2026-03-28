@@ -3,135 +3,439 @@
 {% block content %}
 <div class="section-header">
   <div>
-    <h2>Scan Cage Card</h2>
-    <p class="subtitle">Paste OCR text from a phone scan or photo and turn it into a faster add or update workflow.</p>
+    <h2>Review scanned details</h2>
+    <p class="subtitle">Take a cage card photo, review the extracted fields, then approve create or archive.</p>
   </div>
 </div>
 
+{% if created_mouse %}
 <div class="card" style="margin-bottom: 18px;">
-  <form method="POST" enctype="multipart/form-data">
-    {{ csrf_input() }}
-    <div class="field full">
-      <label for="cage_card_camera">Take cage card photo</label>
-      <input id="cage_card_camera" name="cage_card_camera" type="file" accept="image/*" capture="environment">
-      <p class="subtitle">On your phone this opens the rear camera so you can snap the card directly.</p>
+  <div class="section-header">
+    <div>
+      <h3>Created Successfully</h3>
+      <p class="subtitle">Mouse #{{ created_mouse.id }} was saved. You can keep scanning the next cage card now.</p>
     </div>
-    <div class="field full">
-      <label for="cage_card_gallery">Choose from gallery</label>
-      <input id="cage_card_gallery" name="cage_card_gallery" type="file" accept="image/*">
-      <p class="subtitle">Use this if the cage card photo is already saved in your phone gallery.</p>
-    </div>
-    <div class="field full">
-      <label for="raw_text">Or paste cage card text</label>
-      <textarea id="raw_text" name="raw_text" placeholder="Example:
-CAGE: A-101
-STRAIN: Calb1-IRES-Cre
-SEX: F
-GENOTYPE: + POSITIVE
-DOB: 2026-03-01
-RACK: A1
-PROJECT: EEG">{{ raw_text }}</textarea>
-    </div>
-    <div class="actions" style="margin-top: 16px;">
-      <button type="submit" class="button">Scan And Parse</button>
-    </div>
-  </form>
-</div>
-
-{% if parsed %}
-<div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));">
-  <div class="card">
-    <h3>Detected Fields</h3>
-    <div class="detail-list" style="margin-top: 12px;">
-      <p><strong>Strain:</strong> {{ parsed.editor.strain or "Not found" }}</p>
-      <p><strong>Group type:</strong> {{ parsed.editor.group_type }}</p>
-      <p><strong>Gender:</strong> {{ parsed.editor.gender or "Not found" }}</p>
-      <p><strong>Genotype:</strong> {{ parsed.editor.genotype or "Not found" }}</p>
-      <p><strong>DOB:</strong> {{ parsed.editor.dob or "Not found" }}</p>
-      <p><strong>Cage:</strong> {{ parsed.editor.cage or "Not found" }}</p>
-      <p><strong>Rack:</strong> {{ parsed.editor.rack_location or "Not found" }}</p>
-      <p><strong>Project:</strong> {{ parsed.editor.project or "Not found" }}</p>
-      <p><strong>Training:</strong> {{ "Yes" if parsed.editor.training else "No" }}</p>
-    </div>
-    {% if parsed.warnings %}
-    <div class="flash-messages" style="margin-top: 14px;">
-      {% for warning in parsed.warnings %}
-      <li class="flash flash-danger">{{ warning }}</li>
-      {% endfor %}
-    </div>
-    {% endif %}
-    <div class="actions" style="margin-top: 16px;">
-      <a
-        href="{{ url_for('add_mouse',
-          strain=parsed.editor.strain,
-          group_type=parsed.editor.group_type,
-          gender=parsed.editor.gender,
-          genotype=parsed.editor.genotype,
-          dob=parsed.editor.dob,
-          cage=parsed.editor.cage,
-          rack_location=parsed.editor.rack_location,
-          project=parsed.editor.project,
-          notes=parsed.editor.notes,
-          training='true' if parsed.editor.training else '') }}"
-        class="button success"
-      >
-        Auto Fill New Mouse
-      </a>
-    </div>
+    <div class="chip">Cage {{ created_mouse.cage or "Unassigned" }}</div>
   </div>
-
-  <div class="card">
-    <h3>Raw OCR Text</h3>
-    <pre class="code-block">{{ parsed.raw_text }}</pre>
+  <div class="actions">
+    <a href="{{ url_for('dashboard') }}" class="button secondary">Open Dashboard</a>
+    <a href="{{ url_for('mice_list') }}" class="button secondary">Open Mice List</a>
+    <a href="{{ url_for('edit_mouse', id=created_mouse.id) }}" class="button secondary">Open Created Record</a>
   </div>
-</div>
-
-<div class="card" style="margin-top: 18px;">
-  <h3>Matching Records</h3>
-  {% if matches %}
-  <div class="table-wrap" style="margin-top: 14px;">
-    <table>
-      <thead>
-        <tr>
-          <th>ID</th>
-          <th>Strain</th>
-          <th>Gender</th>
-          <th>Genotype</th>
-          <th>DOB</th>
-          <th>Cage</th>
-          <th>Rack</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for mouse in matches %}
-        <tr>
-          <td>{{ mouse.id }}</td>
-          <td>{{ mouse.strain }}</td>
-          <td>{{ mouse.gender }}</td>
-          <td>{{ mouse.genotype }}</td>
-          <td>{{ mouse.dob }}</td>
-          <td>{{ mouse.cage }}</td>
-          <td>{{ mouse.rack_location or "—" }}</td>
-          <td>
-            <div class="actions">
-              <a href="{{ url_for('edit_mouse', id=mouse.id) }}" class="button warning">Open Record</a>
-              {% if g.user.role in ['admin', 'tech'] %}
-              <form method="POST" action="{{ url_for('delete_mouse', id=mouse.id) }}" class="inline-form" onsubmit="return confirm('Archive this matching mouse?');">
-                {{ csrf_input() }}
-                <button type="submit" class="button danger">Archive</button>
-              </form>
-              {% endif %}
-            </div>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% else %}
-  <p class="subtitle" style="margin-top: 12px;">No active mice matched the detected cage or ID.</p>
-  {% endif %}
 </div>
 {% endif %}
+
+{% if archived_mouse %}
+<div class="card" style="margin-bottom: 18px;">
+  <div class="section-header">
+    <div>
+      <h3>Archived Successfully</h3>
+      <p class="subtitle">Mouse #{{ archived_mouse.id }} was archived. You can continue scanning the next cage card.</p>
+    </div>
+    <div class="chip">Cage {{ archived_mouse.cage or "Unassigned" }}</div>
+  </div>
+  <div class="actions">
+    <a href="{{ url_for('dashboard') }}" class="button secondary">Open Dashboard</a>
+    <a href="{{ url_for('mice_list', include_archived=1) }}" class="button secondary">Open Archived List</a>
+  </div>
+</div>
+{% endif %}
+
+<div class="scan-layout">
+  <div class="card">
+    <h3>Capture</h3>
+    <form method="POST" enctype="multipart/form-data" id="scan-form">
+      {{ csrf_input() }}
+      <input type="hidden" name="scan_mode" id="scan_mode" value="{{ scan_mode or 'create' }}">
+      <div class="scan-guide">
+        <div class="scan-guide-box">
+          <div class="scan-guide-corners"></div>
+          <p>Scan card clearly. Keep all edges visible, avoid shadows, hold steady.</p>
+        </div>
+      </div>
+
+      <div class="field full">
+        <label>Scan action</label>
+        <div class="capture-actions">
+          <button type="button" class="button {% if (scan_mode or 'create') != 'create' %}secondary{% endif %}" id="mode-create-btn">Create New</button>
+          <button type="button" class="button {% if (scan_mode or 'create') == 'archive' %}danger{% else %}secondary{% endif %}" id="mode-archive-btn">Archive Existing</button>
+        </div>
+        <p class="subtitle" id="scan-mode-help">
+          {% if (scan_mode or 'create') == 'archive' %}
+          After extraction, review the card and approve archive for the matching cage record.
+          {% else %}
+          After extraction, the new record form is auto-filled and ready for client approval before saving.
+          {% endif %}
+        </p>
+      </div>
+
+      <div class="field full">
+        <label>Take card photo</label>
+        <div class="capture-actions">
+          <label class="button camera-trigger file-trigger">
+            Open Camera
+            <input id="cage_card_camera" name="cage_card_camera" type="file" accept="image/*,image/heic,image/heif" capture="environment" class="overlay-file-input">
+          </label>
+        </div>
+        <p class="subtitle" id="camera-file-name">No camera image selected yet.</p>
+      </div>
+      <div class="field full">
+        <label>Choose from gallery</label>
+        <div class="capture-actions">
+          <label class="button secondary camera-trigger file-trigger">
+            Open Gallery
+            <input id="cage_card_gallery" name="cage_card_gallery" type="file" accept="image/*,image/heic,image/heif" class="overlay-file-input">
+          </label>
+        </div>
+        <p class="subtitle" id="gallery-file-name">No gallery image selected yet.</p>
+      </div>
+      <div id="client-quality-warnings" class="flash-messages" style="display: none;"></div>
+      <div id="camera-support-warning" class="flash-messages" style="display: none;"></div>
+      <p class="subtitle">After you take or choose a photo, the page uploads it automatically, runs OCR, and fills the review form below.</p>
+      <div class="field full">
+        <label for="raw_text">Or paste raw OCR text</label>
+        <textarea id="raw_text" name="raw_text">{{ raw_text }}</textarea>
+      </div>
+      <div class="actions" style="margin-top: 16px;">
+        <button type="submit" class="button">Scan Card</button>
+      </div>
+      <div class="scan-progress-card" id="scan-progress" style="display: none;">
+        <strong>Running OCR now...</strong>
+        <p class="subtitle" id="scan-progress-message">Uploading image and preparing the card for OCR.</p>
+        <div class="scan-progress-meter">
+          <span id="scan-progress-bar"></span>
+        </div>
+        <p class="subtitle" id="scan-progress-seconds">Estimated time left: about 10 seconds.</p>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h3>Evidence</h3>
+    {% if image_preview %}
+    <div class="scan-evidence-grid">
+      <div>
+        <p class="subtitle">Original image</p>
+        <img src="{{ image_preview }}" alt="Original scan" class="scan-image-preview">
+      </div>
+      {% if processed_preview %}
+      <div>
+        <p class="subtitle">Processed image</p>
+        <img src="{{ processed_preview }}" alt="Processed scan" class="scan-image-preview">
+      </div>
+      {% endif %}
+    </div>
+    {% else %}
+    <p class="subtitle">Upload a camera or gallery image to review the captured evidence here.</p>
+    {% endif %}
+  </div>
+</div>
+
+{% if scan_result %}
+{% set low_confidence = scan_result.overall_confidence < 0.80 %}
+{% if low_confidence %}
+<div class="flash-messages" style="margin-top: 18px;">
+  <li class="flash flash-warning">Some details need review before storing.</li>
+</div>
+{% endif %}
+
+{% if scan_result.warnings %}
+<ul class="flash-messages">
+  {% for warning in scan_result.warnings %}
+  <li class="flash flash-warning">{{ warning }}</li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+<form method="POST" action="{{ url_for('store_scanned_mouse') }}" id="review-form" class="card" style="margin-top: 18px;">
+  {{ csrf_input() }}
+  <input type="hidden" name="scan_mode" value="{{ scan_mode or 'create' }}">
+  <input type="hidden" name="raw_text" value="{{ scan_result.raw_text }}">
+  <input type="hidden" name="overall_confidence" value="{{ scan_result.overall_confidence }}">
+  <input type="hidden" name="image_preview" value="{{ image_preview }}">
+  <input type="hidden" name="processed_preview" value="{{ processed_preview }}">
+
+  <div class="section-header">
+    <div>
+      <h3>Review scanned details</h3>
+      <p class="subtitle">Auto-fill is shown read-only first. Click Edit if you need to correct anything before storing.</p>
+    </div>
+    <div class="chip">Overall confidence {{ "%.0f"|format(scan_result.overall_confidence * 100) }}%</div>
+  </div>
+
+  <div class="form-grid review-grid">
+    {% for field_name, label in [
+      ('strain', 'Strain'),
+      ('gender', 'Gender'),
+      ('genotype', 'Genotype'),
+      ('dob', 'Date of birth (MM/DD/YYYY)'),
+      ('cage', 'Cage number'),
+      ('rack_location', 'Rack location'),
+      ('owner_pi', 'Owner / PI'),
+      ('protocol_number', 'Protocol number'),
+      ('age', 'Age'),
+      ('room', 'Room'),
+      ('requisition_number', 'Requisition number'),
+      ('notes', 'Notes')
+    ] %}
+    {% set payload = scan_result.fields.get(field_name, {'value': '', 'confidence': 0, 'source': 'none'}) %}
+    <div class="field {% if field_name == 'notes' %}full{% endif %}">
+      <label for="{{ field_name }}">{{ label }}</label>
+      {% if field_name == 'notes' %}
+      <textarea id="{{ field_name }}" name="{% if field_name == 'number_of_animals' %}animal_count{% else %}{{ field_name }}{% endif %}" class="review-input confidence-{{ 'high' if payload.confidence >= 0.85 else 'medium' if payload.confidence >= 0.6 else 'low' }}" readonly>{{ payload.value }}</textarea>
+      {% elif field_name == 'dob' %}
+      <input id="{{ field_name }}" name="{{ field_name }}" value="{{ scan_result.editor.dob }}" class="review-input confidence-{{ 'high' if payload.confidence >= 0.85 else 'medium' if payload.confidence >= 0.6 else 'low' }}" readonly>
+      {% elif field_name == 'training' %}
+      <input id="{{ field_name }}" name="training" value="{{ 'true' if scan_result.editor.training else 'false' }}" class="review-input confidence-{{ 'high' if payload.confidence >= 0.85 else 'medium' if payload.confidence >= 0.6 else 'low' }}" readonly>
+      {% elif field_name == 'number_of_animals' %}
+      <input id="{{ field_name }}" name="animal_count" value="{{ payload.value }}" class="review-input confidence-{{ 'high' if payload.confidence >= 0.85 else 'medium' if payload.confidence >= 0.6 else 'low' }}" readonly>
+      {% else %}
+      <input id="{{ field_name }}" name="{{ field_name }}" value="{{ payload.value }}" class="review-input confidence-{{ 'high' if payload.confidence >= 0.85 else 'medium' if payload.confidence >= 0.6 else 'low' }}" readonly>
+      {% endif %}
+      <input type="hidden" name="{{ field_name }}__confidence" value="{{ payload.confidence }}">
+      <input type="hidden" name="{{ field_name }}__source" value="{{ payload.source }}">
+      <div class="confidence-meta">
+        <span>{{ "%.0f"|format(payload.confidence * 100) }}%</span>
+        <span>{{ payload.source }}</span>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="actions" style="margin-top: 20px;">
+    <button type="button" class="button secondary" id="edit-scan-btn">Edit</button>
+    <a href="{{ url_for('scan_cage_card') }}" class="button secondary">Retake Scan</a>
+    {% if (scan_mode or 'create') == 'create' %}
+    <button type="submit" class="button success">Store Record</button>
+    <a
+      href="{{ url_for(
+        'add_mouse',
+        strain=scan_result.editor.strain or '',
+        gender=scan_result.editor.gender or 'UNKNOWN',
+        genotype=scan_result.editor.genotype or '',
+        dob=scan_result.editor.dob or '',
+        cage=scan_result.editor.cage or '',
+        rack_location=scan_result.editor.rack_location or '',
+        owner_pi=scan_result.editor.owner_pi or '',
+        protocol_number=scan_result.editor.protocol_number or '',
+        age=scan_result.editor.age or '',
+        species=scan_result.editor.species or '',
+        room=scan_result.editor.room or '',
+        requisition_number=scan_result.editor.requisition_number or '',
+        notes=scan_result.editor.notes or '',
+      ) }}"
+      class="button secondary"
+    >Open Add Mouse Form</a>
+    {% endif %}
+  </div>
+
+  <details style="margin-top: 18px;">
+    <summary>Raw OCR text</summary>
+    <pre class="code-block" style="margin-top: 12px;">{{ scan_result.raw_text }}</pre>
+  </details>
+</form>
+
+{% if (scan_mode or 'create') == 'archive' %}
+<form method="POST" action="{{ url_for('archive_scanned_mouse') }}" class="card" style="margin-top: 18px;" onsubmit="return confirm('Archive the selected mouse based on this scanned card?');">
+  {{ csrf_input() }}
+  <input type="hidden" name="scan_mode" value="archive">
+  <div class="section-header">
+    <div>
+      <h3>Archive approval</h3>
+      <p class="subtitle">Select the matching active record, let the client approve it, then archive it.</p>
+    </div>
+  </div>
+
+  {% if matches %}
+  <div class="form-grid review-grid">
+    {% for mouse in matches %}
+    <label class="field full match-card">
+      <span class="match-card-header">
+        <input type="radio" name="target_mouse_id" value="{{ mouse.id }}" {% if loop.first %}checked{% endif %}>
+        <strong>#{{ mouse.id }} · {{ mouse.strain }}</strong>
+      </span>
+      <span>Cage {{ mouse.cage }} · {{ mouse.gender }} · {{ mouse.genotype or "No genotype" }}</span>
+      <span>Rack {{ mouse.rack_location or "Unassigned" }} · Owner {{ mouse.owner_pi or "Unknown" }}</span>
+    </label>
+    {% endfor %}
+  </div>
+  <div class="actions" style="margin-top: 20px;">
+    <button type="submit" class="button danger">Approve And Archive</button>
+  </div>
+  {% else %}
+  <div class="flash-messages">
+    <li class="flash flash-warning">No active mouse matched this scan, so there is nothing to archive yet.</li>
+  </div>
+  {% endif %}
+</form>
+{% endif %}
+{% endif %}
+
+<script>
+  const editButton = document.getElementById("edit-scan-btn");
+  const reviewInputs = document.querySelectorAll(".review-input");
+  const scanModeInput = document.getElementById("scan_mode");
+  const modeCreateButton = document.getElementById("mode-create-btn");
+  const modeArchiveButton = document.getElementById("mode-archive-btn");
+  if (editButton) {
+    editButton.addEventListener("click", () => {
+      reviewInputs.forEach((input) => input.removeAttribute("readonly"));
+    });
+  }
+
+  if (modeCreateButton && scanModeInput) {
+    modeCreateButton.addEventListener("click", () => {
+      scanModeInput.value = "create";
+      window.location.href = "{{ url_for('scan_cage_card') }}?scan_mode=create";
+    });
+  }
+
+  if (modeArchiveButton && scanModeInput) {
+    modeArchiveButton.addEventListener("click", () => {
+      scanModeInput.value = "archive";
+      window.location.href = "{{ url_for('scan_cage_card') }}?scan_mode=archive";
+    });
+  }
+
+  const warningBox = document.getElementById("client-quality-warnings");
+  const cameraInput = document.getElementById("cage_card_camera");
+  const galleryInput = document.getElementById("cage_card_gallery");
+  const scanForm = document.getElementById("scan-form");
+  const scanProgress = document.getElementById("scan-progress");
+  const fileInputs = [cameraInput, galleryInput].filter(Boolean);
+  const cameraSupportWarning = document.getElementById("camera-support-warning");
+  const progressMessage = document.getElementById("scan-progress-message");
+  const progressSeconds = document.getElementById("scan-progress-seconds");
+  const progressBar = document.getElementById("scan-progress-bar");
+  let autoSubmitting = false;
+  let progressTimer = null;
+
+  function startEstimatedProgress() {
+    if (!scanProgress) return;
+    const phases = [
+      "Uploading image and preparing the card for OCR.",
+      "Cleaning the image and checking brightness, blur, and glare.",
+      "Reading text from the card.",
+      "Mapping the OCR into cage card fields.",
+      "Preparing the auto-filled review form.",
+    ];
+    let secondsLeft = 10;
+    let phaseIndex = 0;
+    if (progressMessage) {
+      progressMessage.textContent = phases[phaseIndex];
+    }
+    if (progressSeconds) {
+      progressSeconds.textContent = `Estimated time left: about ${secondsLeft} seconds.`;
+    }
+    if (progressBar) {
+      progressBar.style.width = "8%";
+    }
+    progressTimer = window.setInterval(() => {
+      secondsLeft = Math.max(1, secondsLeft - 1);
+      if (secondsLeft <= 8 && phaseIndex < 1) phaseIndex = 1;
+      if (secondsLeft <= 6 && phaseIndex < 2) phaseIndex = 2;
+      if (secondsLeft <= 4 && phaseIndex < 3) phaseIndex = 3;
+      if (secondsLeft <= 2 && phaseIndex < 4) phaseIndex = 4;
+      if (progressMessage) {
+        progressMessage.textContent = phases[phaseIndex];
+      }
+      if (progressSeconds) {
+        progressSeconds.textContent = `Estimated time left: about ${secondsLeft} seconds.`;
+      }
+      if (progressBar) {
+        const percent = Math.min(96, Math.round(((10 - secondsLeft) / 10) * 100));
+        progressBar.style.width = `${percent}%`;
+      }
+    }, 1000);
+  }
+
+  if (cameraSupportWarning) {
+    const warnings = [];
+    if (window.location.protocol !== "https:" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
+      warnings.push("If your phone browser still blocks direct camera launch on local Wi-Fi pages, use Chrome on Android or choose the photo from Gallery after taking it.");
+    }
+    if (!cameraInput || !("capture" in document.createElement("input"))) {
+      warnings.push("This browser has limited support for camera capture from file inputs.");
+    }
+    if (warnings.length) {
+      cameraSupportWarning.innerHTML = warnings.map((warning) => `<li class="flash flash-warning">${warning}</li>`).join("");
+      cameraSupportWarning.style.display = "block";
+    }
+  }
+
+  fileInputs.forEach((input) => {
+    input.addEventListener("change", async (event) => {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+
+      if (input === cameraInput) {
+        document.getElementById("camera-file-name").textContent = file.name;
+      }
+      if (input === galleryInput) {
+        document.getElementById("gallery-file-name").textContent = file.name;
+      }
+
+      try {
+        if (typeof createImageBitmap === "function") {
+          const bitmap = await createImageBitmap(file);
+          const canvas = document.createElement("canvas");
+          const ctx = canvas.getContext("2d");
+          canvas.width = bitmap.width;
+          canvas.height = bitmap.height;
+          ctx.drawImage(bitmap, 0, 0);
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+
+          let brightnessSum = 0;
+          let brightPixels = 0;
+          let darkPixels = 0;
+          for (let index = 0; index < imageData.length; index += 4) {
+            const brightness = (imageData[index] + imageData[index + 1] + imageData[index + 2]) / 3;
+            brightnessSum += brightness;
+            if (brightness > 245) brightPixels += 1;
+            if (brightness < 35) darkPixels += 1;
+          }
+
+          const totalPixels = canvas.width * canvas.height;
+          const avgBrightness = brightnessSum / totalPixels;
+          const warnings = [];
+          if (avgBrightness < 70) warnings.push("Image is too dark");
+          if ((brightPixels / totalPixels) > 0.18) warnings.push("Glare detected");
+          if ((darkPixels / totalPixels) > 0.4) warnings.push("Card may be heavily shadowed");
+          if (canvas.width < 900 || canvas.height < 900) warnings.push("Image may be too small for reliable OCR");
+
+          warningBox.innerHTML = warnings.map((warning) => `<li class="flash flash-warning">${warning}</li>`).join("");
+          warningBox.style.display = warnings.length ? "block" : "none";
+        }
+      } catch (_error) {
+        warningBox.style.display = "none";
+      }
+
+      if (!autoSubmitting && scanForm) {
+        autoSubmitting = true;
+        if (scanProgress) {
+          scanProgress.style.display = "block";
+          startEstimatedProgress();
+        }
+        if (modeCreateButton) {
+          modeCreateButton.disabled = true;
+        }
+        if (modeArchiveButton) {
+          modeArchiveButton.disabled = true;
+        }
+        if (typeof scanForm.requestSubmit === "function") {
+          scanForm.requestSubmit();
+        } else {
+          scanForm.submit();
+        }
+      }
+    });
+  });
+
+  window.addEventListener("pageshow", () => {
+    if (progressTimer) {
+      window.clearInterval(progressTimer);
+      progressTimer = null;
+    }
+  });
+</script>
 {% endblock %}

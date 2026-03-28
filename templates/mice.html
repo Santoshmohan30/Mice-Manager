@@ -91,6 +91,9 @@
         <th>DOB</th>
         <th>Cage</th>
         <th>Rack</th>
+        <th>Owner / PI</th>
+        <th>Protocol</th>
+        <th>Animals</th>
         <th>Training</th>
         <th>Project</th>
         <th>Notes</th>
@@ -108,6 +111,9 @@
         <td>{{ mouse.dob }}</td>
         <td>{{ mouse.cage }}</td>
         <td>{{ mouse.rack_location or "—" }}</td>
+        <td>{{ mouse.owner_pi or "—" }}</td>
+        <td>{{ mouse.protocol_number or "—" }}</td>
+        <td>{{ mouse.animal_count if mouse.animal_count is not none else "—" }}</td>
         <td>{{ "Yes" if mouse.training else "No" }}</td>
         <td>{{ mouse.project or "—" }}</td>
         <td>{{ mouse.notes or "—" }}</td>
@@ -131,7 +137,7 @@
       </tr>
       {% else %}
       <tr>
-        <td colspan="12" class="muted">No mice matched the current filters.</td>
+        <td colspan="15" class="muted">No mice matched the current filters.</td>
       </tr>
       {% endfor %}
     </tbody>

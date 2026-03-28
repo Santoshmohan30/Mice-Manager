@@ -12,13 +12,6 @@
   {{ csrf_input() }}
   <div class="form-grid">
     <div class="field">
-      <label for="group_type">Group type</label>
-      <select id="group_type" name="group_type" required>
-        <option value="genetic_strain" {% if mouse.group_type == 'genetic_strain' %}selected{% endif %}>True genetic strain</option>
-        <option value="procedure_cohort" {% if mouse.group_type == 'procedure_cohort' %}selected{% endif %}>Surgery / injection cohort</option>
-      </select>
-    </div>
-    <div class="field">
       <label for="strain">Strain</label>
       <input id="strain" name="strain" value="{{ mouse.strain }}" list="mouse-labels" required>
     </div>
@@ -35,7 +28,7 @@
     </div>
     <div class="field">
       <label for="dob">Date of birth</label>
-      <input id="dob" name="dob" type="date" value="{{ mouse.dob }}" required>
+      <input id="dob" name="dob" value="{{ display_date_us(mouse.dob) }}" placeholder="MM/DD/YYYY" required>
     </div>
     <div class="field">
       <label for="cage">Cage</label>
@@ -49,9 +42,29 @@
       <label for="project">Project</label>
       <input id="project" name="project" value="{{ mouse.project or '' }}">
     </div>
-    <div class="checkbox-field">
-      <input id="training" name="training" type="checkbox" {% if mouse.training %}checked{% endif %}>
-      <label for="training">Training mouse</label>
+    <div class="field">
+      <label for="owner_pi">Owner / PI</label>
+      <input id="owner_pi" name="owner_pi" value="{{ mouse.owner_pi or '' }}">
+    </div>
+    <div class="field">
+      <label for="protocol_number">Protocol number</label>
+      <input id="protocol_number" name="protocol_number" value="{{ mouse.protocol_number or '' }}" readonly>
+    </div>
+    <div class="field">
+      <label for="age">Age</label>
+      <input id="age" name="age" value="{{ mouse.age or '' }}" readonly>
+    </div>
+    <div class="field">
+      <label for="species">Species</label>
+      <input id="species" name="species" value="{{ mouse.species or '' }}" readonly>
+    </div>
+    <div class="field">
+      <label for="room">Room</label>
+      <input id="room" name="room" value="{{ mouse.room or '' }}" readonly>
+    </div>
+    <div class="field">
+      <label for="requisition_number">Requisition number</label>
+      <input id="requisition_number" name="requisition_number" value="{{ mouse.requisition_number or '' }}">
     </div>
     <div class="field full">
       <label for="notes">Notes</label>

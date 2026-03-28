@@ -1,6 +1,6 @@
 package com.sonny03.micemanager
 
-import android.graphics.Bitmap
+import android.content.Context
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -42,24 +42,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
+import java.io.File
+import java.io.FileOutputStream
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -102,6 +99,17 @@ data class MouseSummary(
     val dob: String,
     val training: Boolean,
     val project: String,
+    val ownerPi: String,
+    val protocolNumber: String,
+    val animalCount: String,
+    val receivedDate: String,
+    val vendor: String,
+    val age: String,
+    val weight: String,
+    val species: String,
+    val room: String,
+    val requisitionNumber: String,
+    val costCenter: String,
     val notes: String,
     val isActive: Boolean,
 )
@@ -131,12 +139,24 @@ data class MouseEditorState(
     val cage: String = "",
     val rackLocation: String = "",
     val project: String = "",
+    val ownerPi: String = "",
+    val protocolNumber: String = "",
+    val animalCount: String = "",
+    val receivedDate: String = "",
+    val vendor: String = "",
+    val age: String = "",
+    val weight: String = "",
+    val species: String = "",
+    val room: String = "",
+    val requisitionNumber: String = "",
+    val costCenter: String = "",
     val notes: String = "",
     val training: Boolean = false,
 )
 
 data class CageCardParseResult(
     val rawText: String,
+    val confidence: Double,
     val editor: MouseEditorState,
     val warnings: List<String>,
     val matches: List<MouseSummary>,
@@ -251,6 +271,41 @@ class MobileRepository {
             val json = JSONObject(body)
             CageCardParseResult(
                 rawText = json.optString("raw_text"),
+                confidence = json.optDouble("confidence", 0.0),
+                editor = parseEditor(json.getJSONObject("editor")),
+                warnings = json.getJSONArray("warnings").toStringList(),
+                matches = json.getJSONArray("matches").toMouseList(),
+            )
+        }
+    }
+
+    suspend fun scanCageCardImage(token: String, context: Context, imageUri: Uri): Result<CageCardParseResult> = withContext(Dispatchers.IO) {
+        runCatching {
+            val boundary = "MICE_MANAGER_${System.currentTimeMillis()}"
+            val connection = URL("$baseUrl/api/cage-card/scan-image").openConnection() as HttpURLConnection
+            connection.requestMethod = "POST"
+            connection.doOutput = true
+            connection.setRequestProperty("Authorization", "Bearer $token")
+            connection.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+
+            val fileName = context.contentResolver.getType(imageUri)?.substringAfterLast("/")?.let { "scan.$it" } ?: "scan.jpg"
+            connection.outputStream.use { output ->
+                output.write("--$boundary\r\n".toByteArray())
+                output.write("Content-Disposition: form-data; name=\"image\"; filename=\"$fileName\"\r\n".toByteArray())
+                output.write("Content-Type: ${context.contentResolver.getType(imageUri) ?: "image/jpeg"}\r\n\r\n".toByteArray())
+                context.contentResolver.openInputStream(imageUri)?.use { input -> input.copyTo(output) }
+                    ?: throw IllegalStateException("Unable to read the selected image.")
+                output.write("\r\n--$boundary--\r\n".toByteArray())
+            }
+
+            val body = connection.readBody()
+            if (connection.responseCode !in 200..299) {
+                throw IllegalStateException(JSONObject(body).optString("error", "Failed to scan cage card image"))
+            }
+            val json = JSONObject(body)
+            CageCardParseResult(
+                rawText = json.optString("raw_text"),
+                confidence = json.optDouble("confidence", 0.0),
                 editor = parseEditor(json.getJSONObject("editor")),
                 warnings = json.getJSONArray("warnings").toStringList(),
                 matches = json.getJSONArray("matches").toMouseList(),
@@ -270,6 +325,17 @@ class MobileRepository {
             dob = item.optString("dob"),
             training = item.optBoolean("training"),
             project = item.optString("project"),
+            ownerPi = item.optString("owner_pi"),
+            protocolNumber = item.optString("protocol_number"),
+            animalCount = item.optString("animal_count"),
+            receivedDate = item.optString("received_date"),
+            vendor = item.optString("vendor"),
+            age = item.optString("age"),
+            weight = item.optString("weight"),
+            species = item.optString("species"),
+            room = item.optString("room"),
+            requisitionNumber = item.optString("requisition_number"),
+            costCenter = item.optString("cost_center"),
             notes = item.optString("notes"),
             isActive = item.optBoolean("is_active", true),
         )
@@ -285,6 +351,17 @@ class MobileRepository {
             cage = item.optString("cage"),
             rackLocation = item.optString("rack_location"),
             project = item.optString("project"),
+            ownerPi = item.optString("owner_pi"),
+            protocolNumber = item.optString("protocol_number"),
+            animalCount = item.optString("animal_count"),
+            receivedDate = item.optString("received_date"),
+            vendor = item.optString("vendor"),
+            age = item.optString("age"),
+            weight = item.optString("weight"),
+            species = item.optString("species"),
+            room = item.optString("room"),
+            requisitionNumber = item.optString("requisition_number"),
+            costCenter = item.optString("cost_center"),
             notes = item.optString("notes"),
             training = item.optBoolean("training", false),
         )
@@ -341,6 +418,17 @@ private fun MouseEditorState.toJson(): JSONObject {
         .put("cage", cage)
         .put("rack_location", rackLocation)
         .put("project", project)
+        .put("owner_pi", ownerPi)
+        .put("protocol_number", protocolNumber)
+        .put("animal_count", animalCount)
+        .put("received_date", receivedDate)
+        .put("vendor", vendor)
+        .put("age", age)
+        .put("weight", weight)
+        .put("species", species)
+        .put("room", room)
+        .put("requisition_number", requisitionNumber)
+        .put("cost_center", costCenter)
         .put("notes", notes)
         .put("training", training)
 }
@@ -413,6 +501,17 @@ class MobileViewModel(private val repository: MobileRepository) : ViewModel() {
             cage = mouse.cage,
             rackLocation = mouse.rackLocation,
             project = mouse.project,
+            ownerPi = mouse.ownerPi,
+            protocolNumber = mouse.protocolNumber,
+            animalCount = mouse.animalCount,
+            receivedDate = mouse.receivedDate,
+            vendor = mouse.vendor,
+            age = mouse.age,
+            weight = mouse.weight,
+            species = mouse.species,
+            room = mouse.room,
+            requisitionNumber = mouse.requisitionNumber,
+            costCenter = mouse.costCenter,
             notes = mouse.notes,
             training = mouse.training,
         )
@@ -446,23 +545,7 @@ class MobileViewModel(private val repository: MobileRepository) : ViewModel() {
                     scanResult = it
                     if (scanMode == ScanMode.Fill) {
                         val exactMatch = it.matches.firstOrNull()
-                        editor = if (exactMatch != null) {
-                            MouseEditorState(
-                                id = exactMatch.id,
-                                strain = if (it.editor.strain.isNotBlank()) it.editor.strain else exactMatch.strain,
-                                groupType = if (it.editor.groupType.isNotBlank()) it.editor.groupType else exactMatch.groupType,
-                                gender = if (it.editor.gender.isNotBlank()) it.editor.gender else exactMatch.gender,
-                                genotype = if (it.editor.genotype.isNotBlank()) it.editor.genotype else exactMatch.genotype,
-                                dob = if (it.editor.dob.isNotBlank()) it.editor.dob else exactMatch.dob,
-                                cage = if (it.editor.cage.isNotBlank()) it.editor.cage else exactMatch.cage,
-                                rackLocation = if (it.editor.rackLocation.isNotBlank()) it.editor.rackLocation else exactMatch.rackLocation,
-                                project = if (it.editor.project.isNotBlank()) it.editor.project else exactMatch.project,
-                                notes = listOf(exactMatch.notes, it.editor.notes).filter { value -> value.isNotBlank() }.joinToString(" | "),
-                                training = it.editor.training || exactMatch.training,
-                            )
-                        } else {
-                            it.editor
-                        }
+                        editor = if (exactMatch != null) mergeScanEditorWithMatch(it.editor, exactMatch) else it.editor
                     }
                     currentScreen = MobileScreen.Scan
                     isLoading = false
@@ -476,6 +559,55 @@ class MobileViewModel(private val repository: MobileRepository) : ViewModel() {
 
     fun useScanInEditor() {
         currentScreen = MobileScreen.Editor
+    }
+
+    private fun mergeScanEditorWithMatch(scanEditor: MouseEditorState, exactMatch: MouseSummary): MouseEditorState {
+        return MouseEditorState(
+            id = exactMatch.id,
+            strain = if (scanEditor.strain.isNotBlank()) scanEditor.strain else exactMatch.strain,
+            groupType = if (scanEditor.groupType.isNotBlank()) scanEditor.groupType else exactMatch.groupType,
+            gender = if (scanEditor.gender.isNotBlank()) scanEditor.gender else exactMatch.gender,
+            genotype = if (scanEditor.genotype.isNotBlank()) scanEditor.genotype else exactMatch.genotype,
+            dob = if (scanEditor.dob.isNotBlank()) scanEditor.dob else exactMatch.dob,
+            cage = if (scanEditor.cage.isNotBlank()) scanEditor.cage else exactMatch.cage,
+            rackLocation = if (scanEditor.rackLocation.isNotBlank()) scanEditor.rackLocation else exactMatch.rackLocation,
+            project = if (scanEditor.project.isNotBlank()) scanEditor.project else exactMatch.project,
+            ownerPi = if (scanEditor.ownerPi.isNotBlank()) scanEditor.ownerPi else exactMatch.ownerPi,
+            protocolNumber = if (scanEditor.protocolNumber.isNotBlank()) scanEditor.protocolNumber else exactMatch.protocolNumber,
+            animalCount = if (scanEditor.animalCount.isNotBlank()) scanEditor.animalCount else exactMatch.animalCount,
+            receivedDate = if (scanEditor.receivedDate.isNotBlank()) scanEditor.receivedDate else exactMatch.receivedDate,
+            vendor = if (scanEditor.vendor.isNotBlank()) scanEditor.vendor else exactMatch.vendor,
+            age = if (scanEditor.age.isNotBlank()) scanEditor.age else exactMatch.age,
+            weight = if (scanEditor.weight.isNotBlank()) scanEditor.weight else exactMatch.weight,
+            species = if (scanEditor.species.isNotBlank()) scanEditor.species else exactMatch.species,
+            room = if (scanEditor.room.isNotBlank()) scanEditor.room else exactMatch.room,
+            requisitionNumber = if (scanEditor.requisitionNumber.isNotBlank()) scanEditor.requisitionNumber else exactMatch.requisitionNumber,
+            costCenter = if (scanEditor.costCenter.isNotBlank()) scanEditor.costCenter else exactMatch.costCenter,
+            notes = listOf(exactMatch.notes, scanEditor.notes).filter { value -> value.isNotBlank() }.joinToString(" | "),
+            training = scanEditor.training || exactMatch.training,
+        )
+    }
+
+    fun scanImage(context: Context, imageUri: Uri) {
+        val authToken = token ?: return
+        statusMessage = null
+        isLoading = true
+        viewModelScope.launch {
+            repository.scanCageCardImage(authToken, context, imageUri)
+                .onSuccess {
+                    scanResult = it
+                    if (scanMode == ScanMode.Fill) {
+                        val exactMatch = it.matches.firstOrNull()
+                        editor = if (exactMatch != null) mergeScanEditorWithMatch(it.editor, exactMatch) else it.editor
+                    }
+                    currentScreen = MobileScreen.Scan
+                    isLoading = false
+                }
+                .onFailure {
+                    isLoading = false
+                    statusMessage = it.message
+                }
+        }
     }
 
     fun archiveMouse(mouseId: Int) {
@@ -655,6 +787,9 @@ fun MiceScreen(viewModel: MobileViewModel, modifier: Modifier = Modifier) {
                     Text("Rack: ${mouse.rackLocation.ifBlank { "Unassigned" }}")
                     Text("Genotype: ${mouse.genotype}")
                     Text("DOB: ${mouse.dob}")
+                    if (mouse.ownerPi.isNotBlank()) Text("Owner / PI: ${mouse.ownerPi}")
+                    if (mouse.protocolNumber.isNotBlank()) Text("Protocol: ${mouse.protocolNumber}")
+                    if (mouse.animalCount.isNotBlank()) Text("Animals: ${mouse.animalCount}")
                     Text("Training: ${if (mouse.training) "Yes" else "No"}")
                     if (mouse.project.isNotBlank()) Text("Project: ${mouse.project}")
                     if (mouse.notes.isNotBlank()) Text("Notes: ${mouse.notes}")
@@ -679,38 +814,17 @@ fun MiceScreen(viewModel: MobileViewModel, modifier: Modifier = Modifier) {
 @Composable
 fun ScanScreen(viewModel: MobileViewModel, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val recognizer = remember { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
-
-    suspend fun processImage(image: InputImage) {
-        val text = suspendCancellableCoroutine<String> { continuation ->
-            recognizer.process(image)
-                .addOnSuccessListener { result ->
-                    if (continuation.isActive) continuation.resume(result.text)
-                }
-                .addOnFailureListener { error ->
-                    if (continuation.isActive) continuation.resumeWithException(error)
-                }
-        }
-        viewModel.parseScanText(text)
-    }
+    var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
 
     val cameraLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicturePreview()
-    ) { bitmap: Bitmap? ->
-        if (bitmap == null) {
+        contract = ActivityResultContracts.TakePicture()
+    ) { success: Boolean ->
+        val imageUri = pendingCameraUri
+        if (!success || imageUri == null) {
             viewModel.statusMessage = "No image was captured."
             return@rememberLauncherForActivityResult
         }
-        viewModel.statusMessage = null
-        viewModel.isLoading = true
-        viewModel.viewModelScope.launch {
-            try {
-                processImage(InputImage.fromBitmap(bitmap, 0))
-            } catch (error: Exception) {
-                viewModel.isLoading = false
-                viewModel.statusMessage = error.message
-            }
-        }
+        viewModel.scanImage(context, imageUri)
     }
 
     val galleryLauncher = rememberLauncherForActivityResult(
@@ -720,17 +834,7 @@ fun ScanScreen(viewModel: MobileViewModel, modifier: Modifier = Modifier) {
             viewModel.statusMessage = "No image was selected."
             return@rememberLauncherForActivityResult
         }
-        viewModel.statusMessage = null
-        viewModel.isLoading = true
-        viewModel.viewModelScope.launch {
-            try {
-                val image = InputImage.fromFilePath(context, uri)
-                processImage(image)
-            } catch (error: Exception) {
-                viewModel.isLoading = false
-                viewModel.statusMessage = error.message
-            }
-        }
+        viewModel.scanImage(context, uri)
     }
 
     LazyColumn(
@@ -760,7 +864,14 @@ fun ScanScreen(viewModel: MobileViewModel, modifier: Modifier = Modifier) {
                     }
                     Spacer(modifier = Modifier.height(12.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Button(onClick = { cameraLauncher.launch(null) }, modifier = Modifier.weight(1f)) {
+                        Button(
+                            onClick = {
+                                val uri = createTempImageUri(context)
+                                pendingCameraUri = uri
+                                cameraLauncher.launch(uri)
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
                             Text("Take Photo")
                         }
                         Button(onClick = { galleryLauncher.launch("image/*") }, modifier = Modifier.weight(1f)) {
@@ -781,6 +892,7 @@ fun ScanScreen(viewModel: MobileViewModel, modifier: Modifier = Modifier) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text("Extracted Card Data", style = MaterialTheme.typography.titleMedium)
                         Spacer(modifier = Modifier.height(8.dp))
+                        Text("Confidence: ${(result.confidence * 100).toInt()}%")
                         Text("Strain: ${result.editor.strain.ifBlank { "Not found" }}")
                         Text("Group: ${result.editor.groupType}")
                         Text("Gender: ${result.editor.gender.ifBlank { "Not found" }}")
@@ -788,6 +900,17 @@ fun ScanScreen(viewModel: MobileViewModel, modifier: Modifier = Modifier) {
                         Text("DOB: ${result.editor.dob.ifBlank { "Not found" }}")
                         Text("Cage: ${result.editor.cage.ifBlank { "Not found" }}")
                         Text("Rack: ${result.editor.rackLocation.ifBlank { "Not found" }}")
+                        Text("Owner / PI: ${result.editor.ownerPi.ifBlank { "Not found" }}")
+                        Text("Protocol: ${result.editor.protocolNumber.ifBlank { "Not found" }}")
+                        Text("Animals: ${result.editor.animalCount.ifBlank { "Not found" }}")
+                        if (result.editor.receivedDate.isNotBlank()) Text("Received: ${result.editor.receivedDate}")
+                        if (result.editor.vendor.isNotBlank()) Text("Vendor: ${result.editor.vendor}")
+                        if (result.editor.age.isNotBlank()) Text("Age: ${result.editor.age}")
+                        if (result.editor.weight.isNotBlank()) Text("Weight: ${result.editor.weight}")
+                        if (result.editor.species.isNotBlank()) Text("Species: ${result.editor.species}")
+                        if (result.editor.room.isNotBlank()) Text("Room: ${result.editor.room}")
+                        if (result.editor.requisitionNumber.isNotBlank()) Text("Requisition: ${result.editor.requisitionNumber}")
+                        if (result.editor.costCenter.isNotBlank()) Text("Cost Center: ${result.editor.costCenter}")
                         if (result.editor.project.isNotBlank()) Text("Project: ${result.editor.project}")
                         if (result.warnings.isNotEmpty()) {
                             Spacer(modifier = Modifier.height(8.dp))
@@ -831,6 +954,8 @@ fun ScanScreen(viewModel: MobileViewModel, modifier: Modifier = Modifier) {
                     Text("#${mouse.id} · ${mouse.strain}", style = MaterialTheme.typography.titleMedium)
                     Text("Cage ${mouse.cage} · ${mouse.gender} · ${mouse.genotype}")
                     Text("Rack: ${mouse.rackLocation.ifBlank { "Unassigned" }}")
+                    if (mouse.ownerPi.isNotBlank()) Text("Owner / PI: ${mouse.ownerPi}")
+                    if (mouse.protocolNumber.isNotBlank()) Text("Protocol: ${mouse.protocolNumber}")
                     Spacer(modifier = Modifier.height(10.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Button(onClick = { viewModel.beginEdit(mouse) }, modifier = Modifier.weight(1f)) {
@@ -872,6 +997,17 @@ fun EditorScreen(viewModel: MobileViewModel, modifier: Modifier = Modifier) {
                     EditorField("Cage", viewModel.editor.cage) { viewModel.editor = viewModel.editor.copy(cage = it) }
                     EditorField("Rack Location", viewModel.editor.rackLocation) { viewModel.editor = viewModel.editor.copy(rackLocation = it) }
                     EditorField("Project", viewModel.editor.project) { viewModel.editor = viewModel.editor.copy(project = it) }
+                    EditorField("Owner / PI", viewModel.editor.ownerPi) { viewModel.editor = viewModel.editor.copy(ownerPi = it) }
+                    EditorField("Protocol Number", viewModel.editor.protocolNumber) { viewModel.editor = viewModel.editor.copy(protocolNumber = it) }
+                    EditorField("Number of Animals", viewModel.editor.animalCount) { viewModel.editor = viewModel.editor.copy(animalCount = it) }
+                    EditorField("Received Date (YYYY-MM-DD)", viewModel.editor.receivedDate) { viewModel.editor = viewModel.editor.copy(receivedDate = it) }
+                    EditorField("Vendor", viewModel.editor.vendor) { viewModel.editor = viewModel.editor.copy(vendor = it) }
+                    EditorField("Age", viewModel.editor.age) { viewModel.editor = viewModel.editor.copy(age = it) }
+                    EditorField("Weight", viewModel.editor.weight) { viewModel.editor = viewModel.editor.copy(weight = it) }
+                    EditorField("Species", viewModel.editor.species) { viewModel.editor = viewModel.editor.copy(species = it) }
+                    EditorField("Room", viewModel.editor.room) { viewModel.editor = viewModel.editor.copy(room = it) }
+                    EditorField("Requisition Number", viewModel.editor.requisitionNumber) { viewModel.editor = viewModel.editor.copy(requisitionNumber = it) }
+                    EditorField("Cost Center", viewModel.editor.costCenter) { viewModel.editor = viewModel.editor.copy(costCenter = it) }
                     EditorField("Notes", viewModel.editor.notes) { viewModel.editor = viewModel.editor.copy(notes = it) }
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Button(onClick = { viewModel.editor = viewModel.editor.copy(training = !viewModel.editor.training) }) {
@@ -948,4 +1084,14 @@ fun SummaryCard(label: String, value: String, modifier: Modifier = Modifier) {
             Text(value, style = MaterialTheme.typography.headlineSmall)
         }
     }
+}
+
+private fun createTempImageUri(context: Context): Uri {
+    val directory = File(context.cacheDir, "scan_images").apply { mkdirs() }
+    val imageFile = File.createTempFile("cage-card-", ".jpg", directory)
+    return FileProvider.getUriForFile(
+        context,
+        "${context.packageName}.fileprovider",
+        imageFile
+    )
 }
