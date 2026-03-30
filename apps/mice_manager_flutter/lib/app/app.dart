@@ -80,6 +80,19 @@ class _MiceManagerAppState extends State<MiceManagerApp> {
         ProcedureController(ProcedureService(procedureRepository));
     _ocrHistoryController = OCRHistoryController(ocrHistoryService);
     _syncController = SyncController(syncService);
+    syncService.registerInboundSyncListener(() async {
+      await Future.wait([
+        _miceController.load(),
+        _breedingController.load(),
+        _procedureController.load(),
+        _ocrHistoryController.load(),
+        _syncController.load(),
+      ]);
+      await _calendarTaskController.syncFromBreedings(
+        _breedingController.items,
+        _miceController.allMice,
+      );
+    });
     _initialization = Future.wait([
       _authController.initialize(),
       _miceController.load(),

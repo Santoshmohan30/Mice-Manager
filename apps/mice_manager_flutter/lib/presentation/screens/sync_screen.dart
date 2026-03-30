@@ -67,11 +67,7 @@ class _SyncScreenState extends State<SyncScreen> {
                         style: TextStyle(
                             fontSize: 22, fontWeight: FontWeight.w700),
                       ),
-                      const SizedBox(height: 10),
-                      const Text(
-                        'Use the Mac app as the hub. On the same Wi‑Fi, the Mac can host a local sync endpoint and the phone can pull from it by scanning the hub QR.',
-                      ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 12),
                       const Text(
                         'Built by Sonny',
                         style: TextStyle(fontWeight: FontWeight.w600),
@@ -289,14 +285,8 @@ class _SyncScreenState extends State<SyncScreen> {
                           style: TextStyle(
                               fontSize: 20, fontWeight: FontWeight.w700),
                         ),
-                        const SizedBox(height: 8),
-                        Text(
-                          widget.controller.lanHubUrl != null
-                              ? 'Mac hub is live on the same Wi‑Fi. Scan this from the phone to pull the latest hub snapshot.'
-                              : 'Show this QR on the Mac app, then scan it from the phone to import a quick sync package.',
-                        ),
                         if (widget.controller.lanHubSummary != null) ...[
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 10),
                           Text(widget.controller.lanHubSummary!),
                         ],
                         const SizedBox(height: 16),
@@ -316,7 +306,12 @@ class _SyncScreenState extends State<SyncScreen> {
               if (packages.isEmpty)
                 const Text('No sync bundles yet.')
               else
-                ...packages.map(_SyncPackageCard.new),
+                ...packages.map(
+                  (package) => _SyncPackageCard(
+                    package: package,
+                    controller: widget.controller,
+                  ),
+                ),
             ],
           ),
         );
@@ -334,7 +329,15 @@ class _SyncScreenState extends State<SyncScreen> {
       return;
     }
     try {
-      final result = await widget.controller.importQuickSyncPayload(payload);
+      final result = payload.startsWith('http://') || payload.startsWith('https://')
+          ? await widget.controller.pushToLanHub(
+              hubUrl: payload,
+              mice: widget.miceController.allMice,
+              breedings: widget.breedingController.items,
+              procedures: widget.procedureController.items,
+              ocrDocuments: widget.ocrHistoryController.items,
+            )
+          : await widget.controller.importQuickSyncPayload(payload);
       await Future.wait([
         widget.miceController.load(),
         widget.breedingController.load(),
@@ -347,7 +350,7 @@ class _SyncScreenState extends State<SyncScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Quick sync imported: ${result.version}${result.notes == null ? '' : '\n${result.notes}'}',
+            '${payload.startsWith('http://') || payload.startsWith('https://') ? 'Phone data sent to Mac hub' : 'Quick sync imported'}: ${result.version}${result.notes == null ? '' : '\n${result.notes}'}',
           ),
         ),
       );
@@ -363,9 +366,13 @@ class _SyncScreenState extends State<SyncScreen> {
 }
 
 class _SyncPackageCard extends StatelessWidget {
-  const _SyncPackageCard(this.package);
+  const _SyncPackageCard({
+    required this.package,
+    required this.controller,
+  });
 
   final SyncPackage package;
+  final SyncController controller;
 
   @override
   Widget build(BuildContext context) {
@@ -374,9 +381,34 @@ class _SyncPackageCard extends StatelessWidget {
       child: ListTile(
         title: Text(package.version),
         subtitle: Text(
-          'Created: ${package.createdAt.toLocal()}\nPath: ${package.bundlePath}${package.notes == null ? '' : '\n${package.notes}'}',
+          'Source: ${package.deviceSourceId}\nCreated: ${package.createdAt.toLocal()}\nPath: ${package.bundlePath}${package.notes == null ? '' : '\n${package.notes}'}',
         ),
         isThreeLine: true,
+        trailing: controller.isPendingReview(package)
+            ? Wrap(
+                spacing: 8,
+                children: [
+                  OutlinedButton(
+                    onPressed: controller.isImporting
+                        ? null
+                        : () async {
+                            await controller.rejectPendingPackage(package);
+                          },
+                    child: const Text('Reject'),
+                  ),
+                  FilledButton.tonal(
+                    onPressed: controller.isImporting
+                        ? null
+                        : () async {
+                            await controller.approvePendingPackage(package);
+                          },
+                    child: const Text('Approve'),
+                  ),
+                ],
+              )
+            : controller.isRejected(package)
+                ? const Chip(label: Text('Rejected'))
+                : null,
       ),
     );
   }

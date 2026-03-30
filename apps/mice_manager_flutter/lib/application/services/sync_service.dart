@@ -15,6 +15,8 @@ import '../../domain/repositories/ocr_document_repository.dart';
 import '../../domain/repositories/procedure_repository.dart';
 import '../../domain/repositories/sync_repository.dart';
 
+typedef InboundSyncAppliedCallback = Future<void> Function();
+
 class SyncService {
   SyncService(
     this._repository,
@@ -33,6 +35,20 @@ class SyncService {
   HttpServer? _hubServer;
   String? _hubToken;
   String? _hubPayload;
+  InboundSyncAppliedCallback? _onInboundSyncApplied;
+
+  void registerInboundSyncListener(InboundSyncAppliedCallback callback) {
+    _onInboundSyncApplied = callback;
+  }
+
+  Future<String> _writePendingPayload(Map<String, dynamic> payload) async {
+    final directory = await getApplicationDocumentsDirectory();
+    final path =
+        '${directory.path}/pending-sync-${DateTime.now().microsecondsSinceEpoch}.json';
+    await File(path)
+        .writeAsString(const JsonEncoder.withIndent('  ').convert(payload));
+    return path;
+  }
 
   Future<SyncPackage> publishSyncBundle({
     required List<Mouse> mice,
@@ -165,23 +181,76 @@ class SyncService {
     });
     _hubServer = await HttpServer.bind(InternetAddress.anyIPv4, 0);
     _hubServer!.listen((request) async {
-      if (request.method != 'GET' || request.uri.path != '/sync/latest') {
+      if (request.uri.path == '/sync/latest' && request.method == 'GET') {
+        final token = request.uri.queryParameters['token'];
+        if (token != _hubToken) {
+          request.response
+            ..statusCode = HttpStatus.forbidden
+            ..write('Invalid token');
+          await request.response.close();
+          return;
+        }
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(_hubPayload);
+        await request.response.close();
+        return;
+      }
+
+      if (request.uri.path == '/sync/push' && request.method == 'POST') {
+        final token = request.uri.queryParameters['token'];
+        if (token != _hubToken) {
+          request.response
+            ..statusCode = HttpStatus.forbidden
+            ..write('Invalid token');
+          await request.response.close();
+          return;
+        }
+        final body = await utf8.decoder.bind(request).join();
+        final decoded = jsonDecode(body) as Map<String, dynamic>;
+        if (decoded['kind'] != 'mice_manager_device_push') {
+          request.response
+            ..statusCode = HttpStatus.badRequest
+            ..write('Invalid push payload');
+          await request.response.close();
+          return;
+        }
+        final pendingPath = await _writePendingPayload(decoded);
+        final summary = await _previewPayload(decoded);
+        final syncPackage = SyncPackage(
+          id: 'hub-receive-${DateTime.now().microsecondsSinceEpoch}',
+          version: decoded['version'] as String? ?? 'hub-receive',
+          createdAt: DateTime.now(),
+          deviceSourceId: decoded['device_source_id'] as String? ?? 'phone-push',
+          bundlePath: pendingPath,
+          notes: 'Pending review • $summary',
+        );
+        await _repository.saveSyncPackage(syncPackage);
+        if (_onInboundSyncApplied != null) {
+          await _onInboundSyncApplied!.call();
+        }
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(
+          jsonEncode({
+            'status': 'ok',
+            'summary': summary,
+            'version': syncPackage.version,
+            'review_required': true,
+          }),
+        );
+        await request.response.close();
+        return;
+      }
+
+      if (request.method != 'GET' && request.method != 'POST') {
         request.response
           ..statusCode = HttpStatus.notFound
           ..write('Not found');
         await request.response.close();
         return;
       }
-      final token = request.uri.queryParameters['token'];
-      if (token != _hubToken) {
-        request.response
-          ..statusCode = HttpStatus.forbidden
-          ..write('Invalid token');
-        await request.response.close();
-        return;
-      }
-      request.response.headers.contentType = ContentType.json;
-      request.response.write(_hubPayload);
+      request.response
+        ..statusCode = HttpStatus.notFound
+        ..write('Not found');
       await request.response.close();
     });
 
@@ -286,7 +355,65 @@ class SyncService {
     }
   }
 
+  Future<SyncPackage> pushToLanHub({
+    required String hubUrl,
+    required List<Mouse> mice,
+    required List<Breeding> breedings,
+    required List<Procedure> procedures,
+    required List<OCRDocument> ocrDocuments,
+  }) async {
+    final latestUri = Uri.parse(hubUrl);
+    final pushUri = latestUri.replace(path: '/sync/push');
+    final client = HttpClient();
+    try {
+      final request = await client.postUrl(pushUri);
+      request.headers.contentType = ContentType.json;
+      request.write(jsonEncode({
+        'kind': 'mice_manager_device_push',
+        'version': 'push-${DateTime.now().millisecondsSinceEpoch}',
+        'created_at': DateTime.now().toIso8601String(),
+        'device_source_id': Platform.isAndroid ? 'android-phone' : 'desktop-device',
+        'mice': mice.map((item) => item.toMap()).toList(),
+        'breedings': breedings.map((item) => item.toMap()).toList(),
+        'procedures': procedures.map((item) => item.toMap()).toList(),
+        'ocr_documents': ocrDocuments.map((item) => item.toMap()).toList(),
+      }));
+      final response = await request.close();
+      final body = await utf8.decoder.bind(response).join();
+      if (response.statusCode != HttpStatus.ok) {
+        throw SyncException('Mac hub returned ${response.statusCode}.');
+      }
+      final decoded = jsonDecode(body) as Map<String, dynamic>;
+      final summary = decoded['summary'] as String? ??
+          _buildSummary(
+            mice: mice.length,
+            breedings: breedings.length,
+            procedures: procedures.length,
+            ocrDocuments: ocrDocuments.length,
+          );
+      final syncPackage = SyncPackage(
+        id: 'push-${DateTime.now().microsecondsSinceEpoch}',
+        version: decoded['version'] as String? ?? 'phone-push',
+        createdAt: DateTime.now(),
+        deviceSourceId: Platform.isAndroid ? 'android-phone' : 'desktop-device',
+        bundlePath: pushUri.toString(),
+        notes: 'Uploaded to Mac hub • awaiting review • $summary',
+      );
+      await _repository.saveSyncPackage(syncPackage);
+      return syncPackage;
+    } finally {
+      client.close(force: true);
+    }
+  }
+
   Future<String> _importPayload(Map<String, dynamic> payload) async {
+    final existingMice = await _mouseRepository.listAll();
+    final existingById = {
+      for (final mouse in existingMice) mouse.id: mouse,
+    };
+    final existingSignatures = {
+      for (final mouse in existingMice) _mouseSignature(mouse): mouse.id,
+    };
     final mice = (payload['mice'] as List<dynamic>? ?? const [])
         .cast<Map<String, dynamic>>()
         .map((item) => Mouse.fromMap(item))
@@ -305,8 +432,24 @@ class SyncService {
             .map((item) => OCRDocument.fromMap(item))
             .toList();
 
+    var createdMice = 0;
+    var updatedMice = 0;
+    var skippedDuplicateMice = 0;
     for (final mouse in mice) {
+      final signature = _mouseSignature(mouse);
+      final existingBySignatureId = existingSignatures[signature];
+      if (existingBySignatureId != null && existingBySignatureId != mouse.id) {
+        skippedDuplicateMice += 1;
+        continue;
+      }
+      if (existingById.containsKey(mouse.id)) {
+        updatedMice += 1;
+      } else {
+        createdMice += 1;
+      }
       await _mouseRepository.save(mouse);
+      existingById[mouse.id] = mouse;
+      existingSignatures[signature] = mouse.id;
     }
     for (final breeding in breedings) {
       await _breedingRepository.save(breeding);
@@ -317,12 +460,92 @@ class SyncService {
     for (final document in ocrDocuments) {
       await _ocrDocumentRepository.save(document);
     }
-    return _buildSummary(
+    return '${_buildSummary(
       mice: mice.length,
       breedings: breedings.length,
       procedures: procedures.length,
       ocrDocuments: ocrDocuments.length,
+    )} • $createdMice new mice, $updatedMice updated, $skippedDuplicateMice duplicate skipped';
+  }
+
+  Future<String> _previewPayload(Map<String, dynamic> payload) async {
+    final existingMice = await _mouseRepository.listAll();
+    final existingById = {
+      for (final mouse in existingMice) mouse.id: mouse,
+    };
+    final existingSignatures = {
+      for (final mouse in existingMice) _mouseSignature(mouse): mouse.id,
+    };
+    final mice = (payload['mice'] as List<dynamic>? ?? const [])
+        .cast<Map<String, dynamic>>()
+        .map((item) => Mouse.fromMap(item))
+        .toList();
+    final breedings = (payload['breedings'] as List<dynamic>? ?? const []);
+    final procedures = (payload['procedures'] as List<dynamic>? ?? const []);
+    final ocrDocuments = (payload['ocr_documents'] as List<dynamic>? ?? const []);
+
+    var createdMice = 0;
+    var updatedMice = 0;
+    var skippedDuplicateMice = 0;
+    for (final mouse in mice) {
+      final signature = _mouseSignature(mouse);
+      final existingBySignatureId = existingSignatures[signature];
+      if (existingBySignatureId != null && existingBySignatureId != mouse.id) {
+        skippedDuplicateMice += 1;
+        continue;
+      }
+      if (existingById.containsKey(mouse.id)) {
+        updatedMice += 1;
+      } else {
+        createdMice += 1;
+      }
+    }
+
+    return '${_buildSummary(
+      mice: mice.length,
+      breedings: breedings.length,
+      procedures: procedures.length,
+      ocrDocuments: ocrDocuments.length,
+    )} • $createdMice new mice, $updatedMice update candidate, $skippedDuplicateMice duplicate candidate';
+  }
+
+  bool isPendingReview(SyncPackage package) =>
+      package.notes?.startsWith('Pending review') == true;
+
+  bool isRejected(SyncPackage package) =>
+      package.notes?.startsWith('Rejected') == true;
+
+  Future<SyncPackage> approvePendingPackage(SyncPackage package) async {
+    final file = File(package.bundlePath);
+    final payload =
+        jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+    final summary = await _importPayload(payload);
+    final approved = SyncPackage(
+      id: package.id,
+      version: package.version,
+      createdAt: package.createdAt,
+      deviceSourceId: package.deviceSourceId,
+      bundlePath: package.bundlePath,
+      notes: 'Approved import • $summary',
     );
+    await _repository.saveSyncPackage(approved);
+    if (_onInboundSyncApplied != null) {
+      await _onInboundSyncApplied!.call();
+    }
+    return approved;
+  }
+
+  Future<SyncPackage> rejectPendingPackage(SyncPackage package) async {
+    final rejected = SyncPackage(
+      id: package.id,
+      version: package.version,
+      createdAt: package.createdAt,
+      deviceSourceId: package.deviceSourceId,
+      bundlePath: package.bundlePath,
+      notes: 'Rejected • ${package.notes ?? ''}',
+    );
+    await _repository.saveSyncPackage(rejected);
+    return rejected;
   }
 
   Future<void> publishUpdateManifest() async {}
@@ -364,6 +587,19 @@ String _buildSummary({
   required int ocrDocuments,
 }) {
   return '$mice mice, $breedings breedings, $procedures procedures, $ocrDocuments scans';
+}
+
+String _mouseSignature(Mouse mouse) {
+  final year = mouse.dateOfBirth.year.toString().padLeft(4, '0');
+  final month = mouse.dateOfBirth.month.toString().padLeft(2, '0');
+  final day = mouse.dateOfBirth.day.toString().padLeft(2, '0');
+  return [
+    mouse.cageNumber.trim().toUpperCase(),
+    mouse.strain.trim().toUpperCase(),
+    mouse.gender.trim().toUpperCase(),
+    mouse.genotype.trim().toUpperCase(),
+    '$year-$month-$day',
+  ].join('|');
 }
 
 class SyncException implements Exception {

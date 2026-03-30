@@ -102,4 +102,47 @@ class AuthController extends ChangeNotifier {
     );
     await refreshUsers();
   }
+
+  Future<void> changeOwnPassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final actor = _currentUser;
+    if (actor == null) {
+      return;
+    }
+    await _service.changeOwnPassword(
+      actor: actor,
+      currentPassword: currentPassword,
+      newPassword: newPassword,
+    );
+    _currentUser = await _service.currentUser();
+    await refreshUsers();
+  }
+
+  Future<void> resetUserPassword(UserAccount target, String newPassword) async {
+    final actor = _currentUser;
+    if (actor == null) {
+      return;
+    }
+    await _service.resetUserPassword(
+      actor: actor,
+      target: target,
+      newPassword: newPassword,
+    );
+    await refreshUsers();
+  }
+
+  Future<void> updateOwnerRecoveryHint(String recoveryHint) async {
+    final actor = _currentUser;
+    if (actor == null) {
+      return;
+    }
+    await _service.updateOwnerRecoveryHint(
+      actor: actor,
+      recoveryHint: recoveryHint,
+    );
+    _currentUser = await _service.currentUser();
+    await refreshUsers();
+  }
 }

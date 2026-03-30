@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../application/services/ocr_parser_service.dart';
 import '../../core/constants/app_constants.dart';
-import '../../domain/models/breeding.dart';
+import '../../domain/models/calendar_task.dart';
 import '../../domain/models/housing_type.dart';
 import '../../domain/models/mouse.dart';
 import '../../domain/models/role.dart';
@@ -16,11 +16,13 @@ import '../state/procedure_controller.dart';
 import '../state/sync_controller.dart';
 import 'breeding_screen.dart';
 import 'calendar_tasks_screen.dart';
+import 'genotyping_screen.dart';
 import 'login_screen.dart';
 import 'mice_screen.dart';
 import 'ocr_intake_screen.dart';
 import 'procedures_screen.dart';
 import 'sync_screen.dart';
+import 'analytics_screen.dart';
 import 'users_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -204,12 +206,27 @@ class _DashboardScreen extends StatelessWidget {
         syncController,
       ]),
       builder: (context, _) {
-        final upcomingTaskCount = calendarTaskController.tasks
+        final now = DateTime.now();
+        final genotypePendingMice = controller.allMice
+            .where((mouse) => mouse.genotype == 'Not sure')
+            .toList()
+          ..sort((a, b) => a.cageNumber.compareTo(b.cageNumber));
+        final genotypePendingCount = genotypePendingMice.length;
+        final genotypedDoneCount =
+            controller.allMice.where((mouse) => mouse.genotype != 'Not sure').length;
+        final openWeaningTasks = calendarTaskController.tasks
+            .where((task) => !task.isDone && task.taskType == 'weaning')
+            .toList()
+          ..sort((a, b) => a.dueDate.compareTo(b.dueDate));
+        final nextWeaningTask =
+            openWeaningTasks.isEmpty ? null : openWeaningTasks.first;
+        final weaningThisMonth = openWeaningTasks
             .where((task) =>
-                !task.isDone &&
-                task.dueDate
-                    .isBefore(DateTime.now().add(const Duration(days: 7))))
+                task.dueDate.year == now.year &&
+                task.dueDate.month == now.month)
             .length;
+        final openTaskCount =
+            calendarTaskController.tasks.where((task) => !task.isDone).length;
         return ListView(
           padding: const EdgeInsets.all(20),
           children: [
@@ -225,15 +242,43 @@ class _DashboardScreen extends StatelessWidget {
                             fontWeight: FontWeight.w800,
                           ),
                     ),
-                    const SizedBox(height: 10),
-                    Text(
-                      '${calendarTaskController.openCount} open task(s), $upcomingTaskCount due within 7 days, ${controller.totalCount} total mice, and ${breedingController.activeCount} active breeding pair(s).',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      'Review dates, finish weaning tasks, and keep the colony records current for the team.',
-                      style: Theme.of(context).textTheme.bodySmall,
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _PriorityStat(
+                            title: 'Pending Genotyping',
+                            value: genotypePendingCount.toString(),
+                            color: const Color(0xFFF59E0B),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _PriorityStat(
+                            title: 'Genotyped',
+                            value: genotypedDoneCount.toString(),
+                            color: const Color(0xFF0F766E),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _PriorityStat(
+                            title: 'Next Weaning',
+                            value: nextWeaningTask == null
+                                ? '--'
+                                : _formatShortDate(nextWeaningTask.dueDate),
+                            color: const Color(0xFF2563EB),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _PriorityStat(
+                            title: 'Open Tasks',
+                            value: openTaskCount.toString(),
+                            color: const Color(0xFF7C3AED),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -301,9 +346,32 @@ class _DashboardScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 16),
+            _GenotypingQueueCard(
+              pendingMice: genotypePendingMice,
+              onOpenGenotyping: () async {
+                await Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => GenotypingScreen(controller: controller),
+                  ),
+                );
+                if (!context.mounted) {
+                  return;
+                }
+                await controller.load();
+              },
+              onMarkGenotype: (mouse, genotype) async {
+                await controller.updateMouse(
+                  mouse.copyWith(
+                    genotype: genotype,
+                    updatedAt: DateTime.now(),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 16),
             _WeaningTimelineCard(
-              breedings: breedingController.items,
-              mice: controller.allMice,
+              nextWeaningTask: nextWeaningTask,
+              weaningThisMonth: weaningThisMonth,
               onOpenCalendar: () async {
                 await Navigator.of(context).push(
                   MaterialPageRoute(
@@ -316,14 +384,25 @@ class _DashboardScreen extends StatelessWidget {
                 }
                 await calendarTaskController.load();
               },
+              onMarkDone: nextWeaningTask == null
+                  ? null
+                  : () async {
+                      await calendarTaskController.toggleDone(
+                        nextWeaningTask,
+                        true,
+                      );
+                    },
             ),
             const SizedBox(height: 16),
-            _StrainAnalyticsCard(mice: controller.allMice),
-            const SizedBox(height: 16),
-            const _ActionHint(
-              title: 'What works now',
-              body:
-                  'Open Mice, Breeding, and Procedures to manage local offline records on the phone.',
+            _StrainAnalyticsCard(
+              mice: controller.allMice,
+              onOpenAnalytics: () async {
+                await Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => AnalyticsScreen(controller: controller),
+                  ),
+                );
+              },
             ),
           ],
         );
@@ -334,33 +413,19 @@ class _DashboardScreen extends StatelessWidget {
 
 class _WeaningTimelineCard extends StatelessWidget {
   const _WeaningTimelineCard({
-    required this.breedings,
-    required this.mice,
+    required this.nextWeaningTask,
+    required this.weaningThisMonth,
     required this.onOpenCalendar,
+    required this.onMarkDone,
   });
 
-  final List<Breeding> breedings;
-  final List<Mouse> mice;
+  final CalendarTask? nextWeaningTask;
+  final int weaningThisMonth;
   final Future<void> Function() onOpenCalendar;
+  final Future<void> Function()? onMarkDone;
 
   @override
   Widget build(BuildContext context) {
-    final now = DateTime.now();
-    final active = breedings
-        .where((item) => item.endedAt == null)
-        .map<_ProjectedBreeding>((item) {
-      final litterDate = item.startedAt
-          .add(const Duration(days: AppConstants.mouseGestationDays));
-      final weaningDate = litterDate
-          .add(const Duration(days: AppConstants.mouseWeaningDaysAfterBirth));
-      return _ProjectedBreeding(
-        label: _pairLabel(item.maleMouseId, item.femaleMouseId),
-        litterDate: litterDate,
-        weaningDate: weaningDate,
-      );
-    }).toList()
-      ..sort((a, b) => a.weaningDate.compareTo(b.weaningDate));
-
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -371,7 +436,7 @@ class _WeaningTimelineCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    'Weaning and Dates',
+                    'Upcoming Weaning',
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                 ),
@@ -382,75 +447,57 @@ class _WeaningTimelineCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
-            const Text(
-              'Active breeding pairs show projected litter and weaning dates. Open Calendar to mark tasks done or add day tasks.',
-            ),
-            const SizedBox(height: 12),
-            if (active.isEmpty)
-              const Text('No active breeding pairs yet.')
-            else
-              ...active.take(5).map(
-                    (item) => ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.event_note_outlined),
-                      title: Text(item.label),
-                      subtitle: Text(
-                        'Litter: ${_formatShortDate(item.litterDate)} • Weaning: ${_formatShortDate(item.weaningDate)}',
-                      ),
-                      trailing: Text(
-                        _daysLabel(item.weaningDate.difference(now).inDays),
-                        textAlign: TextAlign.right,
-                      ),
-                    ),
+            if (nextWeaningTask == null)
+              const Text('No open weaning tasks.')
+            else ...[
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.event_note_outlined),
+                title: Text(nextWeaningTask!.title),
+                subtitle: Text(
+                  '${_formatShortDate(nextWeaningTask!.dueDate)}${nextWeaningTask!.notes == null ? '' : '\n${nextWeaningTask!.notes}'}',
+                ),
+                isThreeLine: nextWeaningTask!.notes != null,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                '$weaningThisMonth weaning task(s) this month',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  FilledButton.tonal(
+                    onPressed: onMarkDone == null
+                        ? null
+                        : () async {
+                            await onMarkDone!.call();
+                          },
+                    child: const Text('Mark Done'),
                   ),
+                  const SizedBox(width: 12),
+                  OutlinedButton(
+                    onPressed: onOpenCalendar,
+                    child: const Text('Open Calendar'),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       ),
     );
   }
-
-  String _pairLabel(String maleMouseId, String femaleMouseId) {
-    String findMouse(String id) {
-      for (final mouse in mice) {
-        if (mouse.id == id) {
-          return '${mouse.strain} (${mouse.cageNumber})';
-        }
-      }
-      return id;
-    }
-
-    return '${findMouse(maleMouseId)} x ${findMouse(femaleMouseId)}';
-  }
-
-  String _daysLabel(int days) {
-    if (days == 0) {
-      return 'Today';
-    }
-    if (days < 0) {
-      return '${days.abs()}d overdue';
-    }
-    return 'In ${days}d';
-  }
-}
-
-class _ProjectedBreeding {
-  const _ProjectedBreeding({
-    required this.label,
-    required this.litterDate,
-    required this.weaningDate,
-  });
-
-  final String label;
-  final DateTime litterDate;
-  final DateTime weaningDate;
 }
 
 class _StrainAnalyticsCard extends StatelessWidget {
   const _StrainAnalyticsCard({
     required this.mice,
+    required this.onOpenAnalytics,
   });
 
   final List<Mouse> mice;
+  final Future<void> Function() onOpenAnalytics;
 
   @override
   Widget build(BuildContext context) {
@@ -477,8 +524,16 @@ class _StrainAnalyticsCard extends StatelessWidget {
               'Strain Analytics',
               style: Theme.of(context).textTheme.titleLarge,
             ),
-            const SizedBox(height: 8),
-            const Text('Plots for each strain split by LAF and LAB.'),
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: FilledButton.tonal(
+                onPressed: () async {
+                  await onOpenAnalytics();
+                },
+                child: const Text('Open Analytics'),
+              ),
+            ),
             const SizedBox(height: 12),
             if (entries.isEmpty)
               const Text('No mice available for analytics yet.')
@@ -647,21 +702,136 @@ class _LegendDot extends StatelessWidget {
   }
 }
 
-class _ActionHint extends StatelessWidget {
-  const _ActionHint({
+class _PriorityStat extends StatelessWidget {
+  const _PriorityStat({
     required this.title,
-    required this.body,
+    required this.value,
+    required this.color,
   });
 
   final String title;
-  final String body;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: color.withValues(alpha: 0.22)),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+      child: Column(
+        children: [
+          Text(
+            value,
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  color: color,
+                ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.labelMedium,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GenotypingQueueCard extends StatelessWidget {
+  const _GenotypingQueueCard({
+    required this.pendingMice,
+    required this.onOpenGenotyping,
+    required this.onMarkGenotype,
+  });
+
+  final List<Mouse> pendingMice;
+  final Future<void> Function() onOpenGenotyping;
+  final Future<void> Function(Mouse mouse, String genotype) onMarkGenotype;
 
   @override
   Widget build(BuildContext context) {
     return Card(
-      child: ListTile(
-        title: Text(title),
-        subtitle: Text(body),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Genotyping Queue',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: FilledButton.tonal(
+                onPressed: () async {
+                  await onOpenGenotyping();
+                },
+                child: const Text('Open Genotyping'),
+              ),
+            ),
+            const SizedBox(height: 10),
+            if (pendingMice.isEmpty)
+              const Text('No cages are waiting for genotyping.')
+            else
+              ...pendingMice.take(6).map(
+                    (mouse) => Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(16),
+                          color: Colors.white.withValues(alpha: 0.34),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              mouse.strain,
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Cage ${mouse.cageNumber} • ${mouse.housingType == HousingType.laf ? 'LAF' : 'LAB'} • ${mouse.gender}',
+                            ),
+                            Text(
+                              'Rack ${mouse.rackLocation ?? '-'} • DOB ${_formatShortDate(mouse.dateOfBirth)}',
+                            ),
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: FilledButton.tonal(
+                                    onPressed: () async {
+                                      await onMarkGenotype(mouse, 'Positive');
+                                    },
+                                    child: const Text('Mark Positive'),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: OutlinedButton(
+                                    onPressed: () async {
+                                      await onMarkGenotype(mouse, 'Negative');
+                                    },
+                                    child: const Text('Mark Negative'),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+          ],
+        ),
       ),
     );
   }

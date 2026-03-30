@@ -33,6 +33,8 @@ class SyncController extends ChangeNotifier {
   bool get isHostingLanHub => _isHostingLanHub;
   String? get lanHubUrl => _lanHubUrl;
   String? get lanHubSummary => _lanHubSummary;
+  bool isPendingReview(SyncPackage package) => _service.isPendingReview(package);
+  bool isRejected(SyncPackage package) => _service.isRejected(package);
 
   Future<void> load() async {
     _isLoading = true;
@@ -102,6 +104,28 @@ class SyncController extends ChangeNotifier {
     return result;
   }
 
+  Future<SyncPackage> pushToLanHub({
+    required String hubUrl,
+    required List<Mouse> mice,
+    required List<Breeding> breedings,
+    required List<Procedure> procedures,
+    required List<OCRDocument> ocrDocuments,
+  }) async {
+    _isImporting = true;
+    notifyListeners();
+    final result = await _service.pushToLanHub(
+      hubUrl: hubUrl,
+      mice: mice,
+      breedings: breedings,
+      procedures: procedures,
+      ocrDocuments: ocrDocuments,
+    );
+    _packages = await _service.listSyncPackages();
+    _isImporting = false;
+    notifyListeners();
+    return result;
+  }
+
   Future<String> exportMiceCsv(List<Mouse> mice) async {
     _isExportingCsv = true;
     notifyListeners();
@@ -137,5 +161,25 @@ class SyncController extends ChangeNotifier {
     _lanHubUrl = null;
     _lanHubSummary = null;
     notifyListeners();
+  }
+
+  Future<SyncPackage> approvePendingPackage(SyncPackage package) async {
+    _isImporting = true;
+    notifyListeners();
+    final result = await _service.approvePendingPackage(package);
+    _packages = await _service.listSyncPackages();
+    _isImporting = false;
+    notifyListeners();
+    return result;
+  }
+
+  Future<SyncPackage> rejectPendingPackage(SyncPackage package) async {
+    _isImporting = true;
+    notifyListeners();
+    final result = await _service.rejectPendingPackage(package);
+    _packages = await _service.listSyncPackages();
+    _isImporting = false;
+    notifyListeners();
+    return result;
   }
 }

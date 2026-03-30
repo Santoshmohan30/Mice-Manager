@@ -19,27 +19,174 @@ class UsersScreen extends StatefulWidget {
 class _UsersScreenState extends State<UsersScreen> {
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _currentPasswordController = TextEditingController();
+  final _newPasswordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
+  final _recoveryHintController = TextEditingController();
   Role _selectedRole = Role.staff;
 
   @override
   void dispose() {
     _usernameController.dispose();
     _passwordController.dispose();
+    _currentPasswordController.dispose();
+    _newPasswordController.dispose();
+    _confirmPasswordController.dispose();
+    _recoveryHintController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final currentUser = widget.controller.currentUser;
     return AnimatedBuilder(
       animation: widget.controller,
       builder: (context, _) {
+        final currentUser = widget.controller.currentUser;
         final users = widget.controller.users;
+        final hint = currentUser?.recoveryKeyHint ?? '';
+        if (_recoveryHintController.text != hint) {
+          _recoveryHintController.text = hint;
+        }
         return Scaffold(
           appBar: AppBar(title: const Text('Users & Roles')),
           body: ListView(
             padding: const EdgeInsets.all(20),
             children: [
+              if (currentUser != null)
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'My Password',
+                          style: TextStyle(
+                              fontSize: 18, fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: _currentPasswordController,
+                          obscureText: true,
+                          decoration: const InputDecoration(
+                            labelText: 'Current password',
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: _newPasswordController,
+                          obscureText: true,
+                          decoration: const InputDecoration(
+                            labelText: 'New password',
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: _confirmPasswordController,
+                          obscureText: true,
+                          decoration: const InputDecoration(
+                            labelText: 'Confirm new password',
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        FilledButton(
+                          onPressed: () async {
+                            if (_newPasswordController.text !=
+                                _confirmPasswordController.text) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content:
+                                      Text('New password and confirm password must match.'),
+                                ),
+                              );
+                              return;
+                            }
+                            try {
+                              await widget.controller.changeOwnPassword(
+                                currentPassword: _currentPasswordController.text,
+                                newPassword: _newPasswordController.text,
+                              );
+                              _currentPasswordController.clear();
+                              _newPasswordController.clear();
+                              _confirmPasswordController.clear();
+                              if (!context.mounted) {
+                                return;
+                              }
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Password updated.'),
+                                ),
+                              );
+                            } catch (error) {
+                              if (!context.mounted) {
+                                return;
+                              }
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text(error.toString())),
+                              );
+                            }
+                          },
+                          child: const Text('Change Password'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              if (currentUser != null && currentUser.role == Role.owner) ...[
+                const SizedBox(height: 16),
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Owner Recovery',
+                          style: TextStyle(
+                              fontSize: 18, fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Store a recovery hint only. Do not put the full recovery phrase here.',
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: _recoveryHintController,
+                          decoration: const InputDecoration(
+                            labelText: 'Recovery hint',
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        FilledButton.tonal(
+                          onPressed: () async {
+                            try {
+                              await widget.controller.updateOwnerRecoveryHint(
+                                _recoveryHintController.text,
+                              );
+                              if (!context.mounted) {
+                                return;
+                              }
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Recovery hint updated.'),
+                                ),
+                              );
+                            } catch (error) {
+                              if (!context.mounted) {
+                                return;
+                              }
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text(error.toString())),
+                              );
+                            }
+                          },
+                          child: const Text('Save Recovery Hint'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
               if (currentUser != null &&
                   (currentUser.role == Role.owner ||
                       currentUser.role == Role.admin))
@@ -63,6 +210,7 @@ class _UsersScreenState extends State<UsersScreen> {
                         const SizedBox(height: 12),
                         TextField(
                           controller: _passwordController,
+                          obscureText: true,
                           decoration: const InputDecoration(
                               labelText: 'Temporary password'),
                         ),
@@ -145,14 +293,40 @@ class _UserTile extends StatelessWidget {
                 onSelected: (value) async {
                   if (value == 'toggle_active') {
                     await controller.setUserActive(user, !user.isActive);
-                  }
-                  if (value == 'admin') {
+                  } else if (value == 'reset_password') {
+                    final resetController = TextEditingController();
+                    final newPassword = await showDialog<String>(
+                      context: context,
+                      builder: (context) => AlertDialog(
+                        title: Text('Reset password for ${user.username}'),
+                        content: TextField(
+                          controller: resetController,
+                          obscureText: true,
+                          decoration: const InputDecoration(
+                            labelText: 'Temporary password',
+                          ),
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            child: const Text('Cancel'),
+                          ),
+                          FilledButton(
+                            onPressed: () => Navigator.of(context)
+                                .pop(resetController.text.trim()),
+                            child: const Text('Reset'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (newPassword != null && newPassword.isNotEmpty) {
+                      await controller.resetUserPassword(user, newPassword);
+                    }
+                  } else if (value == 'admin') {
                     await controller.updateRole(user, Role.admin);
-                  }
-                  if (value == 'staff') {
+                  } else if (value == 'staff') {
                     await controller.updateRole(user, Role.staff);
-                  }
-                  if (value == 'viewer') {
+                  } else if (value == 'viewer') {
                     await controller.updateRole(user, Role.viewer);
                   }
                 },
@@ -164,6 +338,9 @@ class _UserTile extends StatelessWidget {
                         value: 'staff', child: Text('Set Staff')),
                     const PopupMenuItem(
                         value: 'viewer', child: Text('Set Viewer')),
+                    const PopupMenuItem(
+                        value: 'reset_password',
+                        child: Text('Reset Password')),
                     PopupMenuItem(
                       value: 'toggle_active',
                       child:

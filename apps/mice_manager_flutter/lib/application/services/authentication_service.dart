@@ -107,6 +107,63 @@ class AuthenticationService {
       ),
     );
   }
+
+  Future<void> changeOwnPassword({
+    required UserAccount actor,
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final currentHash = sha256.convert(utf8.encode(currentPassword)).toString();
+    if (currentHash != actor.passwordHash) {
+      throw const AuthException('Current password is incorrect.');
+    }
+    if (newPassword.trim().length < 8) {
+      throw const AuthException('New password must be at least 8 characters.');
+    }
+    await _userRepository.save(
+      actor.copyWith(
+        passwordHash: sha256.convert(utf8.encode(newPassword)).toString(),
+        updatedAt: DateTime.now(),
+      ),
+    );
+  }
+
+  Future<void> resetUserPassword({
+    required UserAccount actor,
+    required UserAccount target,
+    required String newPassword,
+  }) async {
+    if (target.isOwner || target.isProtected) {
+      throw const AuthException('Protected accounts cannot be reset here.');
+    }
+    if (!_authorizationService.canDeactivateUser(actor, target)) {
+      throw const AuthException('You cannot reset that user password.');
+    }
+    if (newPassword.trim().length < 8) {
+      throw const AuthException('Temporary password must be at least 8 characters.');
+    }
+    await _userRepository.save(
+      target.copyWith(
+        passwordHash: sha256.convert(utf8.encode(newPassword)).toString(),
+        updatedAt: DateTime.now(),
+      ),
+    );
+  }
+
+  Future<void> updateOwnerRecoveryHint({
+    required UserAccount actor,
+    required String recoveryHint,
+  }) async {
+    if (!_authorizationService.canManageOwnerSecurity(actor)) {
+      throw const AuthException('Only the protected owner can update recovery settings.');
+    }
+    await _userRepository.save(
+      actor.copyWith(
+        recoveryKeyHint: recoveryHint.trim().isEmpty ? null : recoveryHint.trim(),
+        updatedAt: DateTime.now(),
+      ),
+    );
+  }
 }
 
 class AuthException implements Exception {
