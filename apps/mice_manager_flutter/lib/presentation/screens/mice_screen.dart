@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/constants/app_constants.dart';
 import '../../domain/models/housing_type.dart';
 import '../../domain/models/mouse.dart';
+import 'bulk_mouse_replicate_sheet.dart';
 import '../state/mice_controller.dart';
 
 class MiceScreen extends StatelessWidget {
@@ -159,6 +160,25 @@ class MiceScreen extends StatelessWidget {
                           ),
                         ),
                       ],
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      key: ValueKey(controller.cageSearch),
+                      initialValue: controller.cageSearch,
+                      textCapitalization: TextCapitalization.characters,
+                      decoration: InputDecoration(
+                        labelText: 'Find by cage card number',
+                        hintText: 'CC001234',
+                        suffixIcon: controller.cageSearch.isEmpty
+                            ? null
+                            : IconButton(
+                                onPressed: () {
+                                  controller.setCageSearch('');
+                                },
+                                icon: const Icon(Icons.clear),
+                              ),
+                      ),
+                      onChanged: controller.setCageSearch,
                     ),
                   ],
                 ),
@@ -326,7 +346,8 @@ class _MouseCard extends StatelessWidget {
               Text('Genotype: ${mouse.genotype}'),
               Text('DOB: ${_formatDate(mouse.dateOfBirth)}'),
               Text('Age: ${mouse.ageBucketLabel} (${mouse.ageInDays} days)'),
-              Text('Rack: ${mouse.rackLocation ?? '-'}'),
+              Text('Location: ${mouse.locationSummary}'),
+              Text('Rack note: ${mouse.rackLocation ?? '-'}'),
               Text('Room: ${mouse.room ?? '-'}'),
               const SizedBox(height: 6),
               Text('Status: ${mouse.status}'),
@@ -357,6 +378,7 @@ class _MouseEditorSheetState extends State<_MouseEditorSheet> {
   late final TextEditingController _genotypeController;
   late final TextEditingController _dobController;
   late final TextEditingController _cageController;
+  late final TextEditingController _rackNumberController;
   late final TextEditingController _rackController;
   late final TextEditingController _notesController;
   late HousingType _housingType;
@@ -382,6 +404,8 @@ class _MouseEditorSheetState extends State<_MouseEditorSheet> {
       text: existing == null ? '03/01/2026' : _formatDate(existing.dateOfBirth),
     );
     _cageController = TextEditingController(text: existing?.cageNumber ?? '');
+    _rackNumberController =
+        TextEditingController(text: existing?.rackNumber ?? '');
     _rackController = TextEditingController(text: existing?.rackLocation ?? '');
     _notesController = TextEditingController(text: existing?.notes ?? '');
   }
@@ -392,6 +416,7 @@ class _MouseEditorSheetState extends State<_MouseEditorSheet> {
     _genotypeController.dispose();
     _dobController.dispose();
     _cageController.dispose();
+    _rackNumberController.dispose();
     _rackController.dispose();
     _notesController.dispose();
     super.dispose();
@@ -506,7 +531,14 @@ class _MouseEditorSheetState extends State<_MouseEditorSheet> {
                 },
               ),
               const SizedBox(height: 12),
+              _buildField(_rackNumberController, 'Rack number'),
+              const SizedBox(height: 12),
               _buildField(_rackController, 'Rack location'),
+              const SizedBox(height: 6),
+              Text(
+                'Use Rack number for the main rack and Rack location for any extra rack note.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
               const SizedBox(height: 12),
               TextFormField(
                 initialValue: AppConstants.defaultRoom,
@@ -520,18 +552,31 @@ class _MouseEditorSheetState extends State<_MouseEditorSheet> {
                 maxLines: 3,
               ),
               const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: _saving ? null : _save,
-                  child: Text(
-                    _saving
-                        ? 'Saving...'
-                        : _isEditing
-                            ? 'Update Mouse'
-                            : 'Save Mouse',
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: _saving ? null : _save,
+                      child: Text(
+                        _saving
+                            ? 'Saving...'
+                            : _isEditing
+                                ? 'Update Mouse'
+                                : 'Save Mouse',
+                      ),
+                    ),
                   ),
-                ),
+                  if (!_isEditing) ...[
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _saving ? null : _openReplicateFlow,
+                        icon: const Icon(Icons.copy_all_outlined),
+                        label: const Text('Replicate'),
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ],
           ),
@@ -580,6 +625,7 @@ class _MouseEditorSheetState extends State<_MouseEditorSheet> {
             genotype: _selectedGenotype,
             dateOfBirth: dob,
             cageNumber: _cageController.text.trim().toUpperCase(),
+            rackNumber: _rackNumberController.text.trim(),
             rackLocation: _rackController.text.trim(),
             room: AppConstants.defaultRoom,
             notes: _notesController.text.trim().isEmpty
@@ -595,6 +641,7 @@ class _MouseEditorSheetState extends State<_MouseEditorSheet> {
           genotype: _selectedGenotype,
           dateOfBirth: dob,
           cageNumber: _cageController.text.toUpperCase(),
+          rackNumber: _rackNumberController.text,
           rackLocation: _rackController.text,
           notes: _notesController.text,
         );
@@ -614,6 +661,59 @@ class _MouseEditorSheetState extends State<_MouseEditorSheet> {
       return;
     }
     Navigator.of(context).pop();
+  }
+
+  Future<void> _openReplicateFlow() async {
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    final dob = _parseDate(_dobController.text);
+    if (dob == null) {
+      return;
+    }
+
+    final baseMouse = Mouse(
+      id: 'draft-mouse',
+      housingType: _housingType,
+      strain: _strainController.text.trim(),
+      gender: _selectedGender,
+      genotype: _selectedGenotype,
+      dateOfBirth: dob,
+      cageNumber: _cageController.text.trim().toUpperCase(),
+      rackNumber: _rackNumberController.text.trim(),
+      rackLocation: _rackController.text.trim(),
+      room: AppConstants.defaultRoom,
+      isAlive: true,
+      status: 'Active',
+      notes:
+          _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+
+    final result = await showModalBottomSheet<BulkMouseSaveResult>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => BulkMouseReplicateSheet(
+        controller: widget.controller,
+        baseMouse: baseMouse,
+        title: 'Replicate Mouse Records',
+      ),
+    );
+
+    if (!mounted || result == null) {
+      return;
+    }
+
+    Navigator.of(context).pop();
+    final skipped = result.skippedCageNumbers;
+    final message = skipped.isEmpty
+        ? 'Saved ${result.savedCount} mouse record(s).'
+        : 'Saved ${result.savedCount} mouse record(s). Skipped: ${skipped.join(', ')}';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
   }
 
   DateTime? _parseDate(String? input) {

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:excel/excel.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../domain/models/breeding.dart';
@@ -107,6 +108,7 @@ class SyncService {
         'age_bucket',
         'age_days',
         'cage_number',
+        'rack_number',
         'rack_location',
         'room',
         'is_alive',
@@ -124,6 +126,7 @@ class SyncService {
           mouse.ageBucketLabel,
           mouse.ageInDays.toString(),
           mouse.cageNumber,
+          mouse.rackNumber ?? '',
           mouse.rackLocation ?? '',
           mouse.room ?? '',
           mouse.isAlive ? 'true' : 'false',
@@ -134,6 +137,70 @@ class SyncService {
     ];
     final csv = rows.map((row) => row.map(_csvEscape).join(',')).join('\n');
     await file.writeAsString(csv);
+    return path;
+  }
+
+  Future<String> exportMiceExcel(List<Mouse> mice) async {
+    final directory = await getApplicationDocumentsDirectory();
+    final timestamp = DateTime.now();
+    final path =
+        '${directory.path}/mice-export-${timestamp.millisecondsSinceEpoch}.xlsx';
+    final excel = Excel.createExcel();
+    final sheet = excel['Mice'];
+    final rows = <List<String>>[
+      [
+        'ID',
+        'Housing Type',
+        'Strain',
+        'Gender',
+        'Genotype',
+        'Date of Birth',
+        'Age Bucket',
+        'Age Days',
+        'Cage Number',
+        'Rack Number',
+        'Rack Location',
+        'Room',
+        'Is Alive',
+        'Status',
+        'Notes',
+      ],
+      ...mice.map(
+        (mouse) => [
+          mouse.id,
+          mouse.housingType.storageValue,
+          mouse.strain,
+          mouse.gender,
+          mouse.genotype,
+          mouse.dateOfBirth.toIso8601String(),
+          mouse.ageBucketLabel,
+          mouse.ageInDays.toString(),
+          mouse.cageNumber,
+          mouse.rackNumber ?? '',
+          mouse.rackLocation ?? '',
+          mouse.room ?? '',
+          mouse.isAlive ? 'true' : 'false',
+          mouse.status,
+          mouse.notes ?? '',
+        ],
+      ),
+    ];
+    for (var rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+      final row = rows[rowIndex];
+      for (var columnIndex = 0; columnIndex < row.length; columnIndex += 1) {
+        sheet
+            .cell(CellIndex.indexByColumnRow(
+              columnIndex: columnIndex,
+              rowIndex: rowIndex,
+            ))
+            .value = TextCellValue(row[columnIndex]);
+      }
+    }
+    final bytes = excel.save(fileName: 'mice-export.xlsx');
+    if (bytes == null) {
+      throw const SyncException('Could not create Excel export.');
+    }
+    await File(path).writeAsBytes(bytes, flush: true);
     return path;
   }
 

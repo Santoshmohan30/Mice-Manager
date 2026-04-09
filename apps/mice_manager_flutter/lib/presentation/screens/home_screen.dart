@@ -10,12 +10,14 @@ import '../../infrastructure/ocr/android_mlkit_ocr_adapter.dart';
 import '../state/auth_controller.dart';
 import '../state/breeding_controller.dart';
 import '../state/calendar_task_controller.dart';
+import '../state/food_restriction_controller.dart';
 import '../state/mice_controller.dart';
 import '../state/ocr_history_controller.dart';
 import '../state/procedure_controller.dart';
 import '../state/sync_controller.dart';
 import 'breeding_screen.dart';
 import 'calendar_tasks_screen.dart';
+import 'food_restriction_screen.dart';
 import 'genotyping_screen.dart';
 import 'login_screen.dart';
 import 'mice_screen.dart';
@@ -35,6 +37,7 @@ class HomeScreen extends StatefulWidget {
     required this.procedureController,
     required this.ocrHistoryController,
     required this.syncController,
+    required this.foodRestrictionController,
     required this.ocrAdapter,
     required this.ocrParserService,
   });
@@ -46,6 +49,7 @@ class HomeScreen extends StatefulWidget {
   final ProcedureController procedureController;
   final OCRHistoryController ocrHistoryController;
   final SyncController syncController;
+  final FoodRestrictionController foodRestrictionController;
   final AndroidMlKitOCRAdapter ocrAdapter;
   final OCRParserService ocrParserService;
 
@@ -66,6 +70,7 @@ class _HomeScreenState extends State<HomeScreen> {
         procedureController: widget.procedureController,
         ocrHistoryController: widget.ocrHistoryController,
         syncController: widget.syncController,
+        foodRestrictionController: widget.foodRestrictionController,
       ),
       MiceScreen(controller: widget.controller),
       BreedingScreen(
@@ -86,6 +91,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ocrAdapter: widget.ocrAdapter,
         parserService: widget.ocrParserService,
       ),
+      FoodRestrictionScreen(controller: widget.foodRestrictionController),
       SyncScreen(
         controller: widget.syncController,
         miceController: widget.controller,
@@ -170,6 +176,8 @@ class _HomeScreenState extends State<HomeScreen> {
               icon: Icon(Icons.science_outlined), label: 'Procedures'),
           NavigationDestination(
               icon: Icon(Icons.document_scanner_outlined), label: 'OCR'),
+          NavigationDestination(
+              icon: Icon(Icons.monitor_weight_outlined), label: 'Food'),
           NavigationDestination(icon: Icon(Icons.sync_outlined), label: 'Sync'),
         ],
       ),
@@ -185,6 +193,7 @@ class _DashboardScreen extends StatelessWidget {
     required this.procedureController,
     required this.ocrHistoryController,
     required this.syncController,
+    required this.foodRestrictionController,
   });
 
   final MiceController controller;
@@ -193,6 +202,7 @@ class _DashboardScreen extends StatelessWidget {
   final ProcedureController procedureController;
   final OCRHistoryController ocrHistoryController;
   final SyncController syncController;
+  final FoodRestrictionController foodRestrictionController;
 
   @override
   Widget build(BuildContext context) {
@@ -204,6 +214,7 @@ class _DashboardScreen extends StatelessWidget {
         procedureController,
         ocrHistoryController,
         syncController,
+        foodRestrictionController,
       ]),
       builder: (context, _) {
         final now = DateTime.now();
@@ -227,6 +238,7 @@ class _DashboardScreen extends StatelessWidget {
             .length;
         final openTaskCount =
             calendarTaskController.tasks.where((task) => !task.isDone).length;
+        final activeFoodExperiments = foodRestrictionController.activeExperimentCount;
         return ListView(
           padding: const EdgeInsets.all(20),
           children: [
@@ -331,19 +343,29 @@ class _DashboardScreen extends StatelessWidget {
                 const SizedBox(width: 12),
                 Expanded(
                   child: _DashboardStat(
-                    title: 'Open tasks',
-                    value: calendarTaskController.openCount.toString(),
+                    title: 'Tracked food mice',
+                    value: foodRestrictionController.trackedMouseCount.toString(),
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: _DashboardStat(
-                title: 'Sync bundles',
-                value: syncController.packages.length.toString(),
-              ),
+            Row(
+              children: [
+                Expanded(
+                  child: _DashboardStat(
+                    title: 'Food Restriction',
+                    value: activeFoodExperiments.toString(),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _DashboardStat(
+                    title: 'Sync bundles',
+                    value: syncController.packages.length.toString(),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 16),
             _GenotypingQueueCard(
@@ -801,7 +823,7 @@ class _GenotypingQueueCard extends StatelessWidget {
                               'Cage ${mouse.cageNumber} • ${mouse.housingType == HousingType.laf ? 'LAF' : 'LAB'} • ${mouse.gender}',
                             ),
                             Text(
-                              'Rack ${mouse.rackLocation ?? '-'} • DOB ${_formatShortDate(mouse.dateOfBirth)}',
+                              '${mouse.locationSummary} • DOB ${_formatShortDate(mouse.dateOfBirth)}',
                             ),
                             const SizedBox(height: 10),
                             Row(

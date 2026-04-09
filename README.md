@@ -1,51 +1,38 @@
 # Mice Manager
 
-Mice Manager is an offline-first lab management project for tracking mice, breeding, procedures, cage-card intake, calendar tasks, and day-to-day colony operations.
+I built Mice Manager as an offline-first lab management project for tracking mice, breeding, procedures, cage-card intake, calendar tasks, food restriction workflows, and day-to-day colony operations.
 
-This repository now contains two working paths:
+This repository currently contains two working paths:
 - a Flask web app for local browser-based use
-- a Flutter app for Android and macOS, designed as the longer-term desktop hub and field-device workflow
+- a Flutter app for Android and macOS, which I use as the longer-term desktop hub and field-device workflow
 
-## What I Worked On Today
+## Project Summary
 
-Today I pushed Mice Manager closer to the version I actually want to use in a lab instead of just a demo.
+I started this project as a practical tool for lab work and kept extending it toward a more complete cross-platform system. My goal has been to make it useful in the actual daily flow of a mouse colony, not just as a demo app.
 
-I finished the first real offline cross-platform setup:
-- built the Android app as an APK
-- built the macOS app as a `.app`
-- kept local SQLite on-device so the app still works offline
-- added local roles with an Owner-protected account flow
-- improved mice entry, breeding, procedures, OCR history, and recovery behavior
+The current version includes:
+- a modular Flask backend and browser-based interface
+- an offline-first Flutter app for Android and macOS
+- local SQLite storage on-device
+- role-aware access with protected owner controls
+- mice registry, breeding, procedures, OCR intake, task tracking, food restriction, and export workflows
 
-I also pushed the mobile workflow forward:
-- added offline OCR for cage cards
-- added review-before-save instead of blind auto-fill
-- added archive and restore for cage-card scans
-- added CSV export and JSON sync bundles
-- added a same-Wi-Fi Mac hub flow so the phone can scan a QR and import data from the Mac on the local network
-
-On the product side, I cleaned up the UI and made it more usable:
-- glass-style visual polish
-- icon-based bottom navigation
-- better dashboard summaries
-- breeding-related calendar tasks like litter checks and weaning dates
-- strain analytics split across LAF and LAB
-
-There is still more to do, especially around stronger multi-user conflict handling, but the project is now in a much more real and testable place.
+I have been treating this as both a working lab product and a serious systems design project, so I have focused on modular data models, shared cross-platform architecture, offline-first behavior, and clean feature boundaries.
 
 ## Current Capabilities
 
 - authenticated access with role-based permissions
 - Owner / Admin / Staff / Viewer role separation
-- mouse registry with add, edit, delete, duplicate protection, and age calculation
+- mouse registry with add, edit, delete, duplicate protection, age calculation, cage-card search, rack number, and rack location
 - required housing separation for `LAF` and `LAB`
 - breeding and procedure tracking
 - date-based task tracking with weaning support
 - OCR-assisted cage-card intake
 - cage-card archive and restore
-- CSV export
+- food restriction and body weight tracking by experiment
+- CSV export and Excel export
 - local JSON sync bundles
-- same-Wi-Fi hub import flow between macOS and Android
+- same-Wi-Fi reviewed sync flow between macOS and Android
 - local backup, restore, and recovery tooling in the Flask app
 - analytics and strain summaries
 
@@ -109,7 +96,7 @@ cd /Users/sonny03/Documents/MiceManager
 
 ## Running The Flutter App
 
-Flutter project:
+From the Flutter project:
 
 ```bash
 cd /Users/sonny03/Documents/MiceManager/apps/mice_manager_flutter
@@ -147,7 +134,7 @@ flutter build apk
 
 ## OCR Workflow
 
-The current cage-card flow is review-first:
+The current cage-card flow is review-first, which is intentional:
 
 1. capture from camera or choose an image
 2. run offline OCR
@@ -155,17 +142,18 @@ The current cage-card flow is review-first:
 4. review and correct values if needed
 5. save into the local mice database
 
-OCR is meant to reduce typing, not silently invent data.
+I treat OCR as an assistant for data entry, not as a source of truth.
 
 ## Sync Direction
 
-The current sync model is local-first:
+The sync model is local-first:
 
 - Android works as the day-to-day field device
 - macOS acts as the desktop hub
 - sync works through local export/import bundles and same-Wi-Fi hub QR pairing
+- incoming phone syncs can be reviewed on the Mac side before they are applied
 
-For a small lab team, this is a practical offline-first starting point. Future work should focus on stronger conflict-safe multi-user sync.
+For a small lab team, this is a practical offline-first starting point. My next architecture priority is stronger conflict-safe multi-user sync and clearer review flows at the hub.
 
 ## Documentation
 

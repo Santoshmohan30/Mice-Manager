@@ -11,6 +11,7 @@ class Mouse {
     required this.cageNumber,
     required this.isAlive,
     required this.status,
+    this.rackNumber,
     this.rackLocation,
     this.room,
     this.dateOfDeath,
@@ -27,6 +28,7 @@ class Mouse {
   final String genotype;
   final DateTime dateOfBirth;
   final String cageNumber;
+  final String? rackNumber;
   final String? rackLocation;
   final String? room;
   final bool isAlive;
@@ -59,6 +61,17 @@ class Mouse {
     return '$months month old';
   }
 
+  String get locationSummary {
+    final parts = <String>[];
+    if (rackNumber?.trim().isNotEmpty == true) {
+      parts.add('Rack ${rackNumber!.trim()}');
+    }
+    if (rackLocation?.trim().isNotEmpty == true) {
+      parts.add(rackLocation!.trim());
+    }
+    return parts.isEmpty ? '-' : parts.join(' • ');
+  }
+
   Mouse copyWith({
     String? id,
     HousingType? housingType,
@@ -67,6 +80,7 @@ class Mouse {
     String? genotype,
     DateTime? dateOfBirth,
     String? cageNumber,
+    String? rackNumber,
     String? rackLocation,
     String? room,
     bool? isAlive,
@@ -85,6 +99,7 @@ class Mouse {
       genotype: genotype ?? this.genotype,
       dateOfBirth: dateOfBirth ?? this.dateOfBirth,
       cageNumber: cageNumber ?? this.cageNumber,
+      rackNumber: rackNumber ?? this.rackNumber,
       rackLocation: rackLocation ?? this.rackLocation,
       room: room ?? this.room,
       isAlive: isAlive ?? this.isAlive,
@@ -106,6 +121,7 @@ class Mouse {
       'genotype': genotype,
       'date_of_birth': dateOfBirth.toIso8601String(),
       'cage_number': cageNumber,
+      'rack_number': rackNumber,
       'rack_location': rackLocation,
       'room': room,
       'is_alive': isAlive ? 1 : 0,
@@ -127,6 +143,7 @@ class Mouse {
       genotype: map['genotype'] as String,
       dateOfBirth: DateTime.parse(map['date_of_birth'] as String),
       cageNumber: map['cage_number'] as String,
+      rackNumber: map['rack_number'] as String?,
       rackLocation: map['rack_location'] as String?,
       room: map['room'] as String?,
       isAlive: (map['is_alive'] as int) == 1,

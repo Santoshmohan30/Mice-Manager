@@ -5,7 +5,7 @@ class LocalDatabase {
   LocalDatabase();
 
   static const _databaseName = 'mice_manager.db';
-  static const _databaseVersion = 6;
+  static const _databaseVersion = 8;
 
   Database? _database;
 
@@ -48,6 +48,16 @@ class LocalDatabase {
         if (oldVersion < 6) {
           await _createCalendarTasksTable(db);
         }
+        if (oldVersion < 7) {
+          await _createFoodRestrictionExperimentsTable(db);
+          await _createFoodRestrictionMiceTable(db);
+          await _createFoodRestrictionEntriesTable(db);
+        }
+        if (oldVersion < 8) {
+          await db.execute('ALTER TABLE mice ADD COLUMN rack_number TEXT');
+          await db.execute('ALTER TABLE mice ADD COLUMN row_number TEXT');
+          await db.execute('ALTER TABLE mice ADD COLUMN location_space TEXT');
+        }
       },
     );
   }
@@ -62,6 +72,9 @@ class LocalDatabase {
         genotype TEXT NOT NULL,
         date_of_birth TEXT NOT NULL,
         cage_number TEXT NOT NULL,
+        rack_number TEXT,
+        row_number TEXT,
+        location_space TEXT,
         rack_location TEXT,
         room TEXT,
         is_alive INTEGER NOT NULL,
@@ -80,6 +93,9 @@ class LocalDatabase {
     await _createUserAccountsTable(db);
     await _createAppSessionTable(db);
     await _createCalendarTasksTable(db);
+    await _createFoodRestrictionExperimentsTable(db);
+    await _createFoodRestrictionMiceTable(db);
+    await _createFoodRestrictionEntriesTable(db);
   }
 
   Future<void> _createBreedingTable(Database db) async {
@@ -179,6 +195,60 @@ class LocalDatabase {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       )
+    ''');
+  }
+
+  Future<void> _createFoodRestrictionExperimentsTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS food_restriction_experiments (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        started_at TEXT NOT NULL,
+        ended_at TEXT,
+        notes TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+  }
+
+  Future<void> _createFoodRestrictionMiceTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS food_restriction_mice (
+        id TEXT PRIMARY KEY,
+        experiment_id TEXT NOT NULL,
+        serial_no TEXT NOT NULL,
+        mouse_type TEXT NOT NULL,
+        group_name TEXT NOT NULL,
+        gender TEXT NOT NULL,
+        baseline_weight_grams REAL,
+        mouse_name TEXT NOT NULL,
+        notes TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+  }
+
+  Future<void> _createFoodRestrictionEntriesTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS food_restriction_entries (
+        id TEXT PRIMARY KEY,
+        experiment_mouse_id TEXT NOT NULL,
+        entry_date TEXT NOT NULL,
+        person_performing TEXT NOT NULL,
+        weight_grams REAL NOT NULL,
+        food_weight_grams REAL,
+        condition_label TEXT,
+        notes TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_food_restriction_mouse_date
+      ON food_restriction_entries (experiment_mouse_id, entry_date)
     ''');
   }
 }

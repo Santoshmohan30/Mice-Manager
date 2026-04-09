@@ -1,7 +1,11 @@
+import 'dart:io';
+
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../domain/models/sync_package.dart';
 import '../state/breeding_controller.dart';
@@ -134,93 +138,17 @@ class _SyncScreenState extends State<SyncScreen> {
                           ),
                         const SizedBox(height: 12),
                       ],
-                      FilledButton(
-                        onPressed: widget.controller.isExporting
+                      FilledButton.icon(
+                        onPressed: widget.controller.isExportingSheet
                             ? null
-                            : () async {
-                                final result =
-                                    await widget.controller.createBundle(
-                                  mice: widget.miceController.allMice,
-                                  breedings: widget.breedingController.items,
-                                  procedures: widget.procedureController.items,
-                                  ocrDocuments:
-                                      widget.ocrHistoryController.items,
-                                );
-                                if (!context.mounted) {
-                                  return;
-                                }
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                      content: Text(
-                                          'Bundle created: ${result.bundlePath}')),
-                                );
-                              },
-                        child: Text(
-                          widget.controller.isExporting
-                              ? 'Creating Bundle...'
-                              : 'Create Export Bundle',
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      OutlinedButton.icon(
-                        onPressed: widget.controller.isExportingCsv
-                            ? null
-                            : () async {
-                                final path = await widget.controller
-                                    .exportMiceCsv(
-                                        widget.miceController.allMice);
-                                if (!context.mounted) {
-                                  return;
-                                }
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text('CSV exported: $path'),
-                                  ),
-                                );
-                              },
-                        icon: const Icon(Icons.table_view_outlined),
+                            : _exportMiceSheet,
+                        icon: const Icon(Icons.download_outlined),
                         label: Text(
-                          widget.controller.isExportingCsv
-                              ? 'Exporting CSV...'
-                              : 'Export Mice CSV',
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _importPathController,
-                        decoration: const InputDecoration(
-                          labelText: 'Import bundle path',
-                          hintText: '/path/to/bundle.json',
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      OutlinedButton(
-                        onPressed: widget.controller.isImporting
-                            ? null
-                            : () async {
-                                final result =
-                                    await widget.controller.importBundle(
-                                  _importPathController.text.trim(),
-                                );
-                                await Future.wait([
-                                  widget.miceController.load(),
-                                  widget.breedingController.load(),
-                                  widget.procedureController.load(),
-                                  widget.ocrHistoryController.load(),
-                                ]);
-                                if (!context.mounted) {
-                                  return;
-                                }
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                      content: Text(
-                                          'Bundle imported: ${result.bundlePath}')),
-                                );
-                              },
-                        child: Text(
-                          widget.controller.isImporting
-                              ? 'Importing...'
-                              : 'Import Bundle from Path',
+                          widget.controller.isExportingSheet
+                              ? 'Preparing Export...'
+                              : defaultTargetPlatform == TargetPlatform.macOS
+                                  ? 'Export Mice Excel'
+                                  : 'Export Mice Sheet',
                         ),
                       ),
                       const SizedBox(height: 12),
@@ -268,6 +196,85 @@ class _SyncScreenState extends State<SyncScreen> {
                           label: const Text('Scan Quick Sync QR'),
                         ),
                       ],
+                      const SizedBox(height: 12),
+                      ExpansionTile(
+                        tilePadding: EdgeInsets.zero,
+                        title: const Text('Advanced Sync Tools'),
+                        children: [
+                          const SizedBox(height: 8),
+                          FilledButton.tonal(
+                            onPressed: widget.controller.isExporting
+                                ? null
+                                : () async {
+                                    final result =
+                                        await widget.controller.createBundle(
+                                      mice: widget.miceController.allMice,
+                                      breedings:
+                                          widget.breedingController.items,
+                                      procedures:
+                                          widget.procedureController.items,
+                                      ocrDocuments:
+                                          widget.ocrHistoryController.items,
+                                    );
+                                    if (!context.mounted) {
+                                      return;
+                                    }
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          'Bundle created: ${result.bundlePath}',
+                                        ),
+                                      ),
+                                    );
+                                  },
+                            child: Text(
+                              widget.controller.isExporting
+                                  ? 'Creating Bundle...'
+                                  : 'Create Export Bundle',
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: _importPathController,
+                            decoration: const InputDecoration(
+                              labelText: 'Import bundle path',
+                              hintText: '/path/to/bundle.json',
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          OutlinedButton(
+                            onPressed: widget.controller.isImporting
+                                ? null
+                                : () async {
+                                    final result =
+                                        await widget.controller.importBundle(
+                                      _importPathController.text.trim(),
+                                    );
+                                    await Future.wait([
+                                      widget.miceController.load(),
+                                      widget.breedingController.load(),
+                                      widget.procedureController.load(),
+                                      widget.ocrHistoryController.load(),
+                                    ]);
+                                    if (!context.mounted) {
+                                      return;
+                                    }
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          'Bundle imported: ${result.bundlePath}',
+                                        ),
+                                      ),
+                                    );
+                                  },
+                            child: Text(
+                              widget.controller.isImporting
+                                  ? 'Importing...'
+                                  : 'Import Bundle from Path',
+                            ),
+                          ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -316,6 +323,49 @@ class _SyncScreenState extends State<SyncScreen> {
           ),
         );
       },
+    );
+  }
+
+  Future<void> _exportMiceSheet() async {
+    if (defaultTargetPlatform == TargetPlatform.macOS) {
+      final tempPath =
+          await widget.controller.exportMiceExcel(widget.miceController.allMice);
+      final location = await getSaveLocation(
+        suggestedName:
+            'mice-manager-export-${DateTime.now().millisecondsSinceEpoch}.xlsx',
+        acceptedTypeGroups: const [
+          XTypeGroup(
+            label: 'Excel Workbook',
+            extensions: ['xlsx'],
+          ),
+        ],
+      );
+      if (location == null || !mounted) {
+        return;
+      }
+      await File(tempPath).copy(location.path);
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Excel saved to ${location.path}')),
+      );
+      return;
+    }
+
+    final path = await widget.controller.exportMiceCsv(widget.miceController.allMice);
+    await Share.shareXFiles(
+      [XFile(path, mimeType: 'text/csv')],
+      text: 'Mice Manager export',
+      subject: 'Mice Manager CSV Export',
+    );
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Export ready. Use the share sheet to save the CSV file.'),
+      ),
     );
   }
 

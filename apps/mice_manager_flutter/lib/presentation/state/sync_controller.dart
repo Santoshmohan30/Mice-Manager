@@ -18,7 +18,7 @@ class SyncController extends ChangeNotifier {
   bool _isImporting = false;
   bool _isPreparingQr = false;
   String? _quickSyncPayload;
-  bool _isExportingCsv = false;
+  bool _isExportingSheet = false;
   bool _isHostingLanHub = false;
   String? _lanHubUrl;
   String? _lanHubSummary;
@@ -29,7 +29,7 @@ class SyncController extends ChangeNotifier {
   bool get isImporting => _isImporting;
   bool get isPreparingQr => _isPreparingQr;
   String? get quickSyncPayload => _quickSyncPayload;
-  bool get isExportingCsv => _isExportingCsv;
+  bool get isExportingSheet => _isExportingSheet;
   bool get isHostingLanHub => _isHostingLanHub;
   String? get lanHubUrl => _lanHubUrl;
   String? get lanHubSummary => _lanHubSummary;
@@ -127,10 +127,19 @@ class SyncController extends ChangeNotifier {
   }
 
   Future<String> exportMiceCsv(List<Mouse> mice) async {
-    _isExportingCsv = true;
+    _isExportingSheet = true;
     notifyListeners();
     final path = await _service.exportMiceCsv(mice);
-    _isExportingCsv = false;
+    _isExportingSheet = false;
+    notifyListeners();
+    return path;
+  }
+
+  Future<String> exportMiceExcel(List<Mouse> mice) async {
+    _isExportingSheet = true;
+    notifyListeners();
+    final path = await _service.exportMiceExcel(mice);
+    _isExportingSheet = false;
     notifyListeners();
     return path;
   }

@@ -7,7 +7,9 @@ import '../../application/services/ocr_parser_service.dart';
 import '../../core/constants/app_constants.dart';
 import '../../domain/models/ocr_document.dart';
 import '../../domain/models/housing_type.dart';
+import '../../domain/models/mouse.dart';
 import '../../infrastructure/ocr/android_mlkit_ocr_adapter.dart';
+import 'bulk_mouse_replicate_sheet.dart';
 import '../state/ocr_history_controller.dart';
 import '../state/mice_controller.dart';
 
@@ -180,12 +182,23 @@ class _OCRIntakeScreenState extends State<OCRIntakeScreen> {
               onChanged: (value) => _updateField('housing_type', value),
             ),
             const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: _saveParsedMouse,
-                child: const Text('Save as Mouse'),
-              ),
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton(
+                    onPressed: _saveParsedMouse,
+                    child: const Text('Save as Mouse'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _replicateParsedMouse,
+                    icon: const Icon(Icons.copy_all_outlined),
+                    label: const Text('Replicate'),
+                  ),
+                ),
+              ],
             ),
           ],
           if (_rawText.isNotEmpty) ...[
@@ -393,9 +406,8 @@ class _OCRIntakeScreenState extends State<OCRIntakeScreen> {
   }
 
   Future<void> _saveParsedMouse() async {
-    final dob = _parseDate(_fields['dob']);
-    final cage = (_fields['cage_number'] ?? '').trim();
-    if (dob == null || cage.isEmpty) {
+    final baseMouse = _buildParsedMouse();
+    if (baseMouse == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
             content: Text('OCR result needs a valid DOB and cage number.')),
@@ -404,20 +416,15 @@ class _OCRIntakeScreenState extends State<OCRIntakeScreen> {
     }
 
     await widget.controller.addMouse(
-      housingType: (_fields['housing_type'] ?? 'LAF') == 'LAB'
-          ? HousingType.lab
-          : HousingType.laf,
-      strain: _fields['strain'] ?? AppConstants.supportedStrains.first,
-      gender: _fields['gender'] ?? 'UNKNOWN',
-      genotype: _fields['genotype']?.trim().isNotEmpty == true
-          ? _fields['genotype']!
-          : AppConstants.supportedGenotypes.first,
-      dateOfBirth: dob,
-      cageNumber: cage,
-      rackLocation: (_fields['rack_location'] ?? '').isEmpty
-          ? 'Unassigned'
-          : _fields['rack_location']!,
-      notes: _rawText.isEmpty ? null : 'OCR import\n$_rawText',
+      housingType: baseMouse.housingType,
+      strain: baseMouse.strain,
+      gender: baseMouse.gender,
+      genotype: baseMouse.genotype,
+      dateOfBirth: baseMouse.dateOfBirth,
+      cageNumber: baseMouse.cageNumber,
+      rackNumber: baseMouse.rackNumber,
+      rackLocation: baseMouse.rackLocation ?? 'Unassigned',
+      notes: baseMouse.notes,
     );
     await widget.historyController.save(
       OCRDocument(
@@ -438,6 +445,60 @@ class _OCRIntakeScreenState extends State<OCRIntakeScreen> {
     }
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Mouse saved from OCR intake.')),
+    );
+  }
+
+  Future<void> _replicateParsedMouse() async {
+    final baseMouse = _buildParsedMouse();
+    if (baseMouse == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('OCR result needs a valid DOB and cage number.'),
+        ),
+      );
+      return;
+    }
+
+    final result = await showModalBottomSheet<BulkMouseSaveResult>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => BulkMouseReplicateSheet(
+        controller: widget.controller,
+        baseMouse: baseMouse,
+        title: 'Replicate OCR Mouse Records',
+      ),
+    );
+
+    if (!mounted || result == null) {
+      return;
+    }
+
+    await widget.historyController.save(
+      OCRDocument(
+        id: 'ocr-${DateTime.now().microsecondsSinceEpoch}',
+        deviceId: 'android-local',
+        sourcePath: _selectedImage?.path ?? '',
+        rawText: _rawText,
+        parsedFields: _fields,
+        imageMetadata: {
+          'source': _selectedImage == null ? 'unknown' : 'image_picker',
+          'mode': 'replicated',
+        },
+        reviewStatus: _isEditing ? 'reviewed-edited' : 'reviewed',
+        capturedAt: DateTime.now(),
+      ),
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    final skipped = result.skippedCageNumbers;
+    final message = skipped.isEmpty
+        ? 'Saved ${result.savedCount} replicated mice.'
+        : 'Saved ${result.savedCount} replicated mice. Skipped: ${skipped.join(', ')}';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
     );
   }
 
@@ -463,6 +524,38 @@ class _OCRIntakeScreenState extends State<OCRIntakeScreen> {
     }
     return DateTime.tryParse(
       '${year.toString().padLeft(4, '0')}-${month.toString().padLeft(2, '0')}-${day.toString().padLeft(2, '0')}',
+    );
+  }
+
+  Mouse? _buildParsedMouse() {
+    final dob = _parseDate(_fields['dob']);
+    final cage = (_fields['cage_number'] ?? '').trim().toUpperCase();
+    if (dob == null || cage.isEmpty) {
+      return null;
+    }
+
+    return Mouse(
+      id: 'draft-ocr-mouse',
+      housingType: (_fields['housing_type'] ?? 'LAF') == 'LAB'
+          ? HousingType.lab
+          : HousingType.laf,
+      strain: _fields['strain'] ?? AppConstants.supportedStrains.first,
+      gender: (_fields['gender'] ?? 'UNKNOWN').trim().toUpperCase(),
+      genotype: _fields['genotype']?.trim().isNotEmpty == true
+          ? _fields['genotype']!
+          : AppConstants.supportedGenotypes.first,
+      dateOfBirth: dob,
+      cageNumber: cage,
+      rackNumber: null,
+      rackLocation: (_fields['rack_location'] ?? '').isEmpty
+          ? 'Unassigned'
+          : _fields['rack_location']!,
+      room: AppConstants.defaultRoom,
+      isAlive: true,
+      status: 'Active',
+      notes: _rawText.isEmpty ? null : 'OCR import\n$_rawText',
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
     );
   }
 }

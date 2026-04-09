@@ -72,6 +72,16 @@ class DuplicateMouseException implements Exception {
   String toString() => message;
 }
 
+class BulkMouseSaveResult {
+  const BulkMouseSaveResult({
+    required this.savedCount,
+    required this.skippedCageNumbers,
+  });
+
+  final int savedCount;
+  final List<String> skippedCageNumbers;
+}
+
 class MiceController extends ChangeNotifier {
   MiceController(this._mouseService);
 
@@ -84,6 +94,7 @@ class MiceController extends ChangeNotifier {
   String _genderFilter = 'All genders';
   String _genotypeFilter = 'All genotypes';
   MouseAgeFilter _ageFilter = MouseAgeFilter.all;
+  String _cageSearch = '';
 
   List<Mouse> get allMice => _mice;
 
@@ -101,11 +112,14 @@ class MiceController extends ChangeNotifier {
       final genotypeMatches = _genotypeFilter == 'All genotypes' ||
           mouse.genotype == _genotypeFilter;
       final ageMatches = _matchesAgeFilter(mouse);
+      final cageMatches = _cageSearch.isEmpty ||
+          mouse.cageNumber.toUpperCase().contains(_cageSearch);
       return housingMatches &&
           strainMatches &&
           genderMatches &&
           genotypeMatches &&
-          ageMatches;
+          ageMatches &&
+          cageMatches;
     }).toList();
   }
 
@@ -115,6 +129,7 @@ class MiceController extends ChangeNotifier {
   String get genderFilter => _genderFilter;
   String get genotypeFilter => _genotypeFilter;
   MouseAgeFilter get ageFilter => _ageFilter;
+  String get cageSearch => _cageSearch;
   int get totalCount => _mice.length;
   int get lafCount =>
       _mice.where((mouse) => mouse.housingType == HousingType.laf).length;
@@ -154,6 +169,11 @@ class MiceController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setCageSearch(String value) {
+    _cageSearch = value.trim().toUpperCase();
+    notifyListeners();
+  }
+
   List<String> get availableStrains => [
         'All strains',
         ..._mice.map((mouse) => mouse.strain).toSet().toList()..sort(),
@@ -176,6 +196,7 @@ class MiceController extends ChangeNotifier {
     required String genotype,
     required DateTime dateOfBirth,
     required String cageNumber,
+    String? rackNumber,
     required String rackLocation,
     String? notes,
   }) async {
@@ -188,6 +209,7 @@ class MiceController extends ChangeNotifier {
       genotype: genotype.trim(),
       dateOfBirth: dateOfBirth,
       cageNumber: cageNumber.trim(),
+      rackNumber: rackNumber?.trim().isEmpty ?? true ? null : rackNumber?.trim(),
       rackLocation: rackLocation.trim(),
       room: AppConstants.defaultRoom,
       isAlive: true,
@@ -219,6 +241,49 @@ class MiceController extends ChangeNotifier {
   Future<void> deleteMouse(String mouseId) async {
     await _mouseService.delete(mouseId);
     await load();
+  }
+
+  Future<BulkMouseSaveResult> addReplicatedMice({
+    required Mouse baseMouse,
+    required List<String> cageNumbers,
+  }) async {
+    final normalized = <String>[];
+    final seen = <String>{};
+    final skipped = <String>[];
+
+    for (final raw in cageNumbers) {
+      final cage = raw.trim().toUpperCase();
+      if (cage.isEmpty || !seen.add(cage)) {
+        if (cage.isNotEmpty) {
+          skipped.add(cage);
+        }
+        continue;
+      }
+      normalized.add(cage);
+    }
+
+    var savedCount = 0;
+    for (var index = 0; index < normalized.length; index += 1) {
+      final now = DateTime.now().add(Duration(microseconds: index));
+      final candidate = baseMouse.copyWith(
+        id: 'mouse-${now.microsecondsSinceEpoch}',
+        cageNumber: normalized[index],
+        createdAt: now,
+        updatedAt: now,
+      );
+      if (await _mouseService.hasDuplicate(candidate)) {
+        skipped.add(normalized[index]);
+        continue;
+      }
+      await _mouseService.save(candidate);
+      savedCount += 1;
+    }
+
+    await load();
+    return BulkMouseSaveResult(
+      savedCount: savedCount,
+      skippedCageNumbers: skipped,
+    );
   }
 
   bool _matchesAgeFilter(Mouse mouse) {

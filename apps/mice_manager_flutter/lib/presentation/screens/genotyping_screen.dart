@@ -133,7 +133,7 @@ class _GenotypingScreenState extends State<GenotypingScreen> {
                             leading: const Icon(Icons.check_circle_outline),
                             title: Text('${mouse.strain} • ${mouse.cageNumber}'),
                             subtitle: Text(
-                              '${mouse.genotype} • ${mouse.rackLocation ?? '-'}',
+                              '${mouse.genotype} • ${mouse.locationSummary}',
                             ),
                           ),
                         ),
@@ -188,7 +188,7 @@ class _GenotypeMouseTile extends StatelessWidget {
           Text(
             'Cage ${mouse.cageNumber} • ${mouse.housingType.name.toUpperCase()} • ${mouse.gender}',
           ),
-          Text('Rack ${mouse.rackLocation ?? '-'} • DOB ${_formatDate(mouse.dateOfBirth)}'),
+          Text('${mouse.locationSummary} • DOB ${_formatDate(mouse.dateOfBirth)}'),
           const SizedBox(height: 10),
           Row(
             children: [
