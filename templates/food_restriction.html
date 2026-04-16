@@ -1,0 +1,136 @@
+{% extends "layout.html" %}
+{% block title %}Food Restriction · Mice Manager{% endblock %}
+{% block content %}
+<div class="section-header">
+  <div>
+    <h2>Food Restriction</h2>
+    <p class="subtitle">Structured daily body-weight and food logging for repeated lab entries.</p>
+  </div>
+</div>
+
+<section class="card">
+  <form method="GET" class="compact-filter-bar">
+    <div class="field compact-field">
+      <label for="mouse_id">Mouse</label>
+      <select id="mouse_id" name="mouse_id" onchange="this.form.submit()">
+        <option value="">All mice</option>
+        {% for mouse in mice %}
+        <option value="{{ mouse.id }}" {% if selected_mouse and selected_mouse.id == mouse.id %}selected{% endif %}>
+          #{{ mouse.id }} · {{ mouse.strain }} · Cage {{ mouse.cage }}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+    {% if selected_mouse %}
+    <div class="results-meta">
+      <span class="chip">Selected: #{{ selected_mouse.id }} · {{ selected_mouse.strain }}</span>
+      <span class="chip">Cage {{ selected_mouse.cage }}</span>
+    </div>
+    {% endif %}
+  </form>
+</section>
+
+<section class="card" style="margin-top: 18px;">
+  <div class="section-header" style="margin-bottom: 14px;">
+    <div>
+      <h3>Daily Log Entry</h3>
+      <p class="subtitle">One row per mouse per day. Saving the same mouse and date updates the existing log.</p>
+    </div>
+  </div>
+  <form method="POST">
+    {{ csrf_input() }}
+    <input type="hidden" name="mouse_id" value="{{ selected_mouse.id if selected_mouse else '' }}">
+    <div class="form-grid">
+      <div class="field">
+        <label for="date">Day / date</label>
+        <input id="date" name="date" type="date" value="{{ today }}" required>
+      </div>
+      <div class="field">
+        <label for="person_performing">Person performing</label>
+        <input id="person_performing" name="person_performing" type="text" value="{{ latest_log.person_performing if latest_log else '' }}" placeholder="Sonny">
+      </div>
+      <div class="field">
+        <label for="weight">Body weight (g)</label>
+        <input id="weight" name="weight" type="number" inputmode="decimal" min="0" step="0.1" placeholder="25.4" required>
+      </div>
+      <div class="field">
+        <label for="food_given">Food given (g)</label>
+        <input id="food_given" name="food_given" type="number" inputmode="decimal" min="0" step="0.1" value="{{ latest_log.food_given if latest_log and latest_log.food_given is not none else '' }}" placeholder="2.5">
+      </div>
+      <div class="field">
+        <label for="condition">Condition</label>
+        <input id="condition" name="condition" type="text" value="{{ latest_log.condition if latest_log else 'Good' }}" placeholder="Good">
+      </div>
+      <div class="field full">
+        <label for="notes">Notes</label>
+        <textarea id="notes" name="notes" placeholder="Restriction notes, interventions, or concerns.">{{ latest_log.notes if latest_log else '' }}</textarea>
+      </div>
+    </div>
+    <div class="actions" style="margin-top: 16px;">
+      <button type="submit" class="button">Save Daily Log</button>
+      {% if not selected_mouse %}
+      <span class="chip">Select a mouse above to begin logging.</span>
+      {% endif %}
+    </div>
+  </form>
+</section>
+
+<section class="card" style="margin-top: 18px;">
+  <div class="section-header" style="margin-bottom: 14px;">
+    <div>
+      <h3>Recent Food Restriction Logs</h3>
+      <p class="subtitle">Baseline is the first recorded weight for each mouse.</p>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Mouse</th>
+          <th>Performer</th>
+          <th>Weight (g)</th>
+          <th>% Original</th>
+          <th>% Change</th>
+          <th>Food (g)</th>
+          <th>Condition</th>
+          <th>Notes</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in log_rows %}
+        <tr>
+          <td>{{ row.log.date }}</td>
+          <td>
+            {% if row.mouse %}
+            <strong>#{{ row.mouse.id }} · {{ row.mouse.strain }}</strong><br>
+            <span class="muted">Cage {{ row.mouse.cage }}</span>
+            {% else %}
+            Unknown mouse
+            {% endif %}
+          </td>
+          <td>{{ row.log.person_performing or '—' }}</td>
+          <td>{{ "%.2f"|format(row.log.weight) }}</td>
+          <td>{{ "%.2f%%"|format(row.percent_original) if row.percent_original is not none else '—' }}</td>
+          <td>{{ "%.2f%%"|format(row.percent_change) if row.percent_change is not none else '—' }}</td>
+          <td>{{ "%.2f"|format(row.log.food_given) if row.log.food_given is not none else '—' }}</td>
+          <td>{{ row.log.condition or '—' }}</td>
+          <td>{{ row.log.notes or '—' }}</td>
+          <td>
+            <form method="POST" action="{{ url_for('delete_food_restriction_log', log_id=row.log.id) }}" class="inline-form" onsubmit="return confirm('Delete this daily log?');">
+              {{ csrf_input() }}
+              <button type="submit" class="button danger">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="10" class="muted">No food restriction logs yet.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

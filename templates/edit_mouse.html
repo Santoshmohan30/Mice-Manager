@@ -13,62 +13,99 @@
   <div class="form-grid">
     <div class="field">
       <label for="strain">Strain</label>
-      <input id="strain" name="strain" value="{{ mouse.strain }}" list="mouse-labels" required>
+      <input id="strain" name="strain" type="text" value="{{ form_values.strain }}" list="mouse-labels" required>
     </div>
     <div class="field">
       <label for="gender">Gender</label>
       <select id="gender" name="gender" required>
-        <option value="MALE" {% if mouse.gender == 'MALE' %}selected{% endif %}>MALE</option>
-        <option value="FEMALE" {% if mouse.gender == 'FEMALE' %}selected{% endif %}>FEMALE</option>
+        {% for option in gender_options %}
+        <option value="{{ option }}" {% if form_values.gender == option %}selected{% endif %}>{{ option }}</option>
+        {% endfor %}
       </select>
     </div>
     <div class="field">
       <label for="genotype">Genotype</label>
-      <input id="genotype" name="genotype" value="{{ mouse.genotype }}" required>
+      <select id="genotype" name="genotype" required>
+        {% for option in genotype_options %}
+        <option value="{{ option }}" {% if form_values.genotype == option %}selected{% endif %}>{{ option }}</option>
+        {% endfor %}
+      </select>
     </div>
     <div class="field">
       <label for="dob">Date of birth</label>
-      <input id="dob" name="dob" value="{{ display_date_us(mouse.dob) }}" placeholder="MM/DD/YYYY" required>
+      <input id="dob" name="dob" type="date" value="{{ form_values.dob }}" required>
     </div>
     <div class="field">
-      <label for="cage">Cage</label>
-      <input id="cage" name="cage" value="{{ mouse.cage }}" required>
+      <label for="cage">CC number</label>
+      <input id="cage" name="cage" type="text" inputmode="numeric" enterkeyhint="next" autocomplete="off" spellcheck="false" value="{{ form_values.cage }}" placeholder="Enter cage card number" required>
     </div>
     <div class="field">
       <label for="rack_location">Rack location</label>
-      <input id="rack_location" name="rack_location" value="{{ mouse.rack_location or '' }}" placeholder="Rack A / Shelf 2">
+      <input id="rack_location" name="rack_location" type="text" value="{{ form_values.rack_location }}" placeholder="Rack A / Shelf 2">
     </div>
     <div class="field">
       <label for="project">Project</label>
-      <input id="project" name="project" value="{{ mouse.project or '' }}">
+      <input id="project" name="project" type="text" value="{{ form_values.project }}">
     </div>
     <div class="field">
       <label for="owner_pi">Owner / PI</label>
-      <input id="owner_pi" name="owner_pi" value="{{ mouse.owner_pi or '' }}">
+      <input id="owner_pi" name="owner_pi" type="text" value="{{ form_values.owner_pi }}">
     </div>
     <div class="field">
       <label for="protocol_number">Protocol number</label>
-      <input id="protocol_number" name="protocol_number" value="{{ mouse.protocol_number or '' }}" readonly>
+      <input id="protocol_number" name="protocol_number" type="text" value="{{ form_values.protocol_number }}" readonly>
+    </div>
+    <div class="field">
+      <label for="animal_count">Animal count</label>
+      <input id="animal_count" name="animal_count" type="number" min="0" step="1" value="{{ form_values.animal_count }}">
+    </div>
+    <div class="field">
+      <label for="received_date">Received date</label>
+      <input id="received_date" name="received_date" type="date" value="{{ form_values.received_date }}">
+    </div>
+    <div class="field checkbox-field">
+      <input id="training" name="training" type="checkbox" value="1" {% if form_values.training %}checked{% endif %}>
+      <label for="training">Training mouse</label>
+    </div>
+    <div class="field">
+      <label for="status">Status</label>
+      <select id="status" name="status">
+        {% for option in status_options %}
+        <option value="{{ option }}" {% if form_values.status == option %}selected{% endif %}>{{ option|title }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="date_of_death">Date of death</label>
+      <input id="date_of_death" name="date_of_death" type="date" value="{{ form_values.date_of_death }}">
+    </div>
+    <div class="field">
+      <label for="death_reason">Death reason</label>
+      <input id="death_reason" name="death_reason" type="text" value="{{ form_values.death_reason }}">
     </div>
     <div class="field">
       <label for="age">Age</label>
-      <input id="age" name="age" value="{{ mouse.age or '' }}" readonly>
+      <input id="age" name="age" type="text" value="{{ form_values.age }}" readonly>
     </div>
     <div class="field">
       <label for="species">Species</label>
-      <input id="species" name="species" value="{{ mouse.species or '' }}" readonly>
+      <input id="species" name="species" type="text" value="{{ form_values.species }}" readonly>
     </div>
     <div class="field">
       <label for="room">Room</label>
-      <input id="room" name="room" value="{{ mouse.room or '' }}" readonly>
+      <input id="room" name="room" type="text" value="{{ form_values.room }}" readonly>
     </div>
     <div class="field">
       <label for="requisition_number">Requisition number</label>
-      <input id="requisition_number" name="requisition_number" value="{{ mouse.requisition_number or '' }}">
+      <input id="requisition_number" name="requisition_number" type="text" value="{{ form_values.requisition_number }}">
+    </div>
+    <div class="field">
+      <label for="cost_center">Cost center</label>
+      <input id="cost_center" name="cost_center" type="text" value="{{ form_values.cost_center }}">
     </div>
     <div class="field full">
       <label for="notes">Notes</label>
-      <textarea id="notes" name="notes">{{ mouse.notes or '' }}</textarea>
+      <textarea id="notes" name="notes">{{ form_values.notes }}</textarea>
     </div>
   </div>
   <div class="actions" style="margin-top: 16px;">

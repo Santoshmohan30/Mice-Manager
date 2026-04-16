@@ -31,6 +31,7 @@
         <a href="{{ url_for('dashboard') }}" class="{% if request.endpoint == 'dashboard' %}active{% endif %}">Dashboard</a>
         <a href="{{ url_for('mice_list') }}" class="{% if request.endpoint in ['mice_list', 'add_mouse', 'edit_mouse', 'cage_transfer'] %}active{% endif %}">Mice</a>
         <a href="{{ url_for('scan_cage_card') }}" class="{% if request.endpoint == 'scan_cage_card' %}active{% endif %}">Scan</a>
+        <a href="{{ url_for('food_restriction') }}" class="{% if request.endpoint in ['food_restriction', 'delete_food_restriction_log'] %}active{% endif %}">Food Restriction</a>
         <a href="{{ url_for('analytics') }}" class="{% if request.endpoint == 'analytics' %}active{% endif %}">Analytics</a>
         <a href="{{ url_for('breeding_log') }}" class="{% if request.endpoint in ['breeding_log', 'add_breeding', 'pup_list'] %}active{% endif %}">Breeding</a>
         <a href="{{ url_for('procedures') }}" class="{% if request.endpoint == 'procedures' %}active{% endif %}">Procedures</a>

@@ -147,8 +147,8 @@ class _SyncScreenState extends State<SyncScreen> {
                           widget.controller.isExportingSheet
                               ? 'Preparing Export...'
                               : defaultTargetPlatform == TargetPlatform.macOS
-                                  ? 'Export Mice Excel'
-                                  : 'Export Mice Sheet',
+                                  ? 'Export Mice Lab Sheet'
+                                  : 'Export Mice Lab Sheet',
                         ),
                       ),
                       const SizedBox(height: 12),
@@ -348,7 +348,7 @@ class _SyncScreenState extends State<SyncScreen> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Excel saved to ${location.path}')),
+        SnackBar(content: Text('Lab sheet saved to ${location.path}')),
       );
       return;
     }
@@ -356,8 +356,8 @@ class _SyncScreenState extends State<SyncScreen> {
     final path = await widget.controller.exportMiceCsv(widget.miceController.allMice);
     await Share.shareXFiles(
       [XFile(path, mimeType: 'text/csv')],
-      text: 'Mice Manager export',
-      subject: 'Mice Manager CSV Export',
+      text: 'Mice Manager lab sheet export',
+      subject: 'Mice Manager Lab Sheet',
     );
     if (!mounted) {
       return;

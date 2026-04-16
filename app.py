@@ -12,8 +12,9 @@ import tempfile
 from datetime import date, datetime, timedelta
 from functools import wraps
 from pathlib import Path
+from types import SimpleNamespace
 
-from sqlalchemy import inspect
+from sqlalchemy import inspect, or_
 from flask import (
     Flask,
     Response,
@@ -81,7 +82,6 @@ STRAIN_ALIASES = {
     "C57BL6": "C57/BL",
     "C57 BL6": "C57/BL",
 }
-
 
 def token_serializer():
     return URLSafeTimedSerializer(app.config["SECRET_KEY"], salt="mice-manager-api")
@@ -185,6 +185,14 @@ def canonical_mouse_label(raw_value, group_type=None):
 
 def classify_mouse_group(mouse):
     return mouse.group_type or infer_group_type_from_label(mouse.strain)
+
+
+def mouse_type_label(group_type):
+    mapping = {
+        "genetic_strain": "Genetic strain",
+        "procedure_cohort": "Procedure cohort",
+    }
+    return mapping.get(group_type, "Unknown")
 
 
 def today_iso():
@@ -436,10 +444,12 @@ def api_login_required(view):
 
 
 def serialize_mouse(mouse):
+    group_type = classify_mouse_group(mouse)
     return {
         "id": mouse.id,
         "strain": mouse.strain,
-        "group_type": classify_mouse_group(mouse),
+        "group_type": group_type,
+        "mouse_type": mouse_type_label(group_type),
         "gender": mouse.gender,
         "genotype": mouse.genotype,
         "dob": mouse.dob,
@@ -459,6 +469,10 @@ def serialize_mouse(mouse):
         "room": mouse.room or "",
         "requisition_number": mouse.requisition_number or "",
         "cost_center": mouse.cost_center or "",
+        "is_alive": bool(mouse.is_alive),
+        "status": mouse.status or "active",
+        "date_of_death": mouse.date_of_death or "",
+        "death_reason": mouse.death_reason or "",
         "is_active": bool(mouse.is_active),
         "deleted_at": mouse.deleted_at or "",
     }
@@ -545,15 +559,25 @@ def get_scan_service():
 
 
 def apply_mouse_form(mouse, form):
-    mouse.group_type = infer_group_type_from_label(form["strain"])
-    mouse.strain = canonical_mouse_label(form["strain"].strip(), mouse.group_type)
+    mouse.group_type = infer_group_type_from_label(form.get("strain", ""))
+    mouse.strain = canonical_mouse_label(form.get("strain", "").strip(), mouse.group_type)
     mouse.gender = normalize_gender(form.get("gender", ""))
-    mouse.genotype = form.get("genotype", "").strip()
+    genotype = normalize_text_value(form.get("genotype", "")) or "Not sure"
+    mouse.genotype = genotype if genotype in COMMON_GENOTYPE_OPTIONS else "Not sure"
     mouse.dob = normalize_date(form.get("dob", ""))
     mouse.cage = normalize_text_value(form.get("cage", ""))
     mouse.rack_location = form.get("rack_location", "").strip()
     mouse.notes = form.get("notes", "").strip()
     mouse.training = form.get("training") in {"on", "true", "True", True}
+    raw_status = (normalize_text_value(form.get("status", "")) or "active").lower()
+    mouse.status = raw_status if raw_status in {"active", "monitoring", "retired", "deceased"} else "active"
+    mouse.is_alive = mouse.status != "deceased"
+    if mouse.is_alive:
+        mouse.date_of_death = None
+        mouse.death_reason = None
+    else:
+        mouse.date_of_death = normalize_date(form.get("date_of_death", "")) or None
+        mouse.death_reason = normalize_text_value(form.get("death_reason", "")) or None
     mouse.project = form.get("project", "").strip()
     mouse.owner_pi = form.get("owner_pi", "").strip()
     mouse.protocol_number = DEFAULT_PROTOCOL_NUMBER
@@ -567,6 +591,84 @@ def apply_mouse_form(mouse, form):
     mouse.room = DEFAULT_ROOM
     mouse.requisition_number = normalize_text_value(form.get("requisition_number", ""))
     mouse.cost_center = normalize_text_value(form.get("cost_center", ""))
+
+
+COMMON_GENDER_OPTIONS = ["MALE", "FEMALE", "UNKNOWN"]
+COMMON_GENOTYPE_OPTIONS = ["Not sure", "Positive", "Negative"]
+STATUS_OPTIONS = ["active", "deceased"]
+MOUSE_TYPE_OPTIONS = [
+    ("genetic_strain", "Genetic strain"),
+    ("procedure_cohort", "Procedure cohort"),
+]
+
+
+def validate_mouse_form(form):
+    errors = []
+    if not normalize_text_value(form.get("strain", "")):
+        errors.append("Strain is required.")
+    if normalize_gender(form.get("gender", "")) not in {"MALE", "FEMALE", "UNKNOWN"}:
+        errors.append("Gender must be MALE, FEMALE, or UNKNOWN.")
+    genotype = normalize_text_value(form.get("genotype", "")) or "Not sure"
+    if genotype not in COMMON_GENOTYPE_OPTIONS:
+        errors.append("Genotype must be Not sure, Positive, or Negative.")
+    if not normalize_date(form.get("dob", "")):
+        errors.append("Date of birth must be a valid date.")
+    if not normalize_text_value(form.get("cage", "")):
+        errors.append("Cage is required.")
+    animal_count = (form.get("animal_count", "") or "").strip()
+    if animal_count and not animal_count.isdigit():
+        errors.append("Animal count must be a whole number.")
+    status = normalize_text_value(form.get("status", "")) or "active"
+    if status.lower() not in {"active", "monitoring", "retired", "deceased"}:
+        errors.append("Status must be Active, Monitoring, Retired, or Deceased.")
+    if status.lower() == "deceased" and not normalize_date(form.get("date_of_death", "")):
+        errors.append("Date of death is required when status is deceased.")
+    if status.lower() == "deceased" and not normalize_text_value(form.get("death_reason", "")):
+        errors.append("Death reason is required when status is deceased.")
+    return errors
+
+
+def build_mouse_form_values(mouse=None, form_data=None, request_args=None):
+    source = form_data or request_args or {}
+
+    def pick(key, default=""):
+        if form_data is not None:
+            return str(source.get(key, default) or default)
+        if mouse is not None:
+            value = getattr(mouse, key, default)
+            return "" if value is None else str(value)
+        return str(source.get(key, default) or default)
+
+    dob_value = normalize_date(pick("dob"))
+    status_value = (pick("status", getattr(mouse, "status", "active")) or "active").lower()
+    return {
+        "strain": pick("strain"),
+        "gender": pick("gender", "MALE"),
+        "genotype": pick("genotype", "Not sure"),
+        "dob": dob_value,
+        "cage": pick("cage"),
+        "rack_location": pick("rack_location"),
+        "project": pick("project"),
+        "owner_pi": pick("owner_pi", DEFAULT_OWNER_PI),
+        "protocol_number": pick("protocol_number", DEFAULT_PROTOCOL_NUMBER) or DEFAULT_PROTOCOL_NUMBER,
+        "animal_count": pick("animal_count"),
+        "received_date": normalize_date(pick("received_date")),
+        "vendor": pick("vendor"),
+        "age": pick("age") or calculate_age_from_dob(dob_value),
+        "weight": pick("weight"),
+        "species": pick("species", "Mouse") or "Mouse",
+        "room": pick("room", DEFAULT_ROOM) or DEFAULT_ROOM,
+        "requisition_number": pick("requisition_number"),
+        "cost_center": pick("cost_center"),
+        "notes": pick("notes"),
+        "training": pick("training").lower() in {"1", "true", "on", "yes", "training"},
+        "status": status_value if status_value in {"active", "monitoring", "retired", "deceased"} else "active",
+        "date_of_death": normalize_date(pick("date_of_death")),
+        "death_reason": pick("death_reason"),
+        "mouse_type_label": mouse_type_label(
+            pick("group_type", getattr(mouse, "group_type", "")) or infer_group_type_from_label(pick("strain"))
+        ),
+    }
 
 
 def normalize_text_value(value):
@@ -839,6 +941,16 @@ def ensure_mouse_schema():
             connection.exec_driver_sql("UPDATE mouse SET is_active = 1 WHERE is_active IS NULL")
         if "deleted_at" not in columns:
             safe_add_column(connection, "deleted_at", "ALTER TABLE mouse ADD COLUMN deleted_at VARCHAR(30)")
+        if "is_alive" not in columns:
+            safe_add_column(connection, "is_alive", "ALTER TABLE mouse ADD COLUMN is_alive BOOLEAN")
+            connection.exec_driver_sql("UPDATE mouse SET is_alive = 1 WHERE is_alive IS NULL")
+        if "status" not in columns:
+            safe_add_column(connection, "status", "ALTER TABLE mouse ADD COLUMN status VARCHAR(30)")
+            connection.exec_driver_sql("UPDATE mouse SET status = 'active' WHERE status IS NULL OR TRIM(status) = ''")
+        if "date_of_death" not in columns:
+            safe_add_column(connection, "date_of_death", "ALTER TABLE mouse ADD COLUMN date_of_death VARCHAR(20)")
+        if "death_reason" not in columns:
+            safe_add_column(connection, "death_reason", "ALTER TABLE mouse ADD COLUMN death_reason VARCHAR(120)")
         if "owner_pi" not in columns:
             safe_add_column(connection, "owner_pi", "ALTER TABLE mouse ADD COLUMN owner_pi VARCHAR(120)")
         if "protocol_number" not in columns:
@@ -863,6 +975,25 @@ def ensure_mouse_schema():
             safe_add_column(connection, "cost_center", "ALTER TABLE mouse ADD COLUMN cost_center VARCHAR(80)")
 
 
+def ensure_weight_schema():
+    def safe_add_column(connection, column_name, statement):
+        try:
+            connection.exec_driver_sql(statement)
+        except OperationalError as error:
+            message = str(error).lower()
+            if "duplicate column name" not in message and "already exists" not in message and "duplicate_column" not in message:
+                raise
+
+    with db.engine.begin() as connection:
+        columns = table_columns("weight")
+        if "person_performing" not in columns:
+            safe_add_column(connection, "person_performing", "ALTER TABLE weight ADD COLUMN person_performing VARCHAR(120)")
+        if "condition" not in columns:
+            safe_add_column(connection, "condition", "ALTER TABLE weight ADD COLUMN condition VARCHAR(120)")
+        if "notes" not in columns:
+            safe_add_column(connection, "notes", "ALTER TABLE weight ADD COLUMN notes TEXT")
+
+
 def normalize_existing_mouse_data():
     changed = False
     for mouse in Mouse.query.all():
@@ -871,11 +1002,24 @@ def normalize_existing_mouse_data():
         if mouse.is_active is None:
             mouse.is_active = True
             changed = True
+        if mouse.is_alive is None:
+            mouse.is_alive = True
+            changed = True
+        if not mouse.status:
+            mouse.status = "active"
+            changed = True
         if mouse.group_type != inferred_group_type:
             mouse.group_type = inferred_group_type
             changed = True
         if mouse.strain != canonical_label:
             mouse.strain = canonical_label
+            changed = True
+        if mouse.status.lower() == "deceased":
+            if mouse.is_alive:
+                mouse.is_alive = False
+                changed = True
+        elif not mouse.is_alive:
+            mouse.status = "deceased"
             changed = True
     if changed:
         db.session.commit()
@@ -884,6 +1028,7 @@ def normalize_existing_mouse_data():
 def ensure_default_admin():
     db.create_all()
     ensure_mouse_schema()
+    ensure_weight_schema()
     ensure_user_schema()
     if User.query.count() == 0:
         default_password = os.environ.get("DEFAULT_ADMIN_PASSWORD", "ChangeMe123!")
@@ -1336,9 +1481,10 @@ def add_strain():
 @login_required
 def mice_list():
     strain_filter = request.args.get("strain", "").strip()
-    group_type_filter = request.args.get("group_type", "").strip()
+    group_type_filter = request.args.get("mouse_type", "").strip() or request.args.get("group_type", "").strip()
     gender_filter = request.args.get("gender", "").strip()
     genotype_filter = request.args.get("genotype", "").strip()
+    search_query = request.args.get("search", "").strip()
     dob_start = request.args.get("dob_start", "").strip()
     dob_end = request.args.get("dob_end", "").strip()
     sort_dob = request.args.get("sort_dob", "").strip()
@@ -1353,6 +1499,28 @@ def mice_list():
         query = query.filter_by(gender=gender_filter)
     if genotype_filter:
         query = query.filter_by(genotype=genotype_filter)
+    if search_query:
+        like_value = f"%{search_query}%"
+        normalized_search = normalize_label(search_query)
+        group_type_matches = []
+        if "GENETIC" in normalized_search or "STRAIN" in normalized_search:
+            group_type_matches.append("genetic_strain")
+        if "PROCEDURE" in normalized_search or "COHORT" in normalized_search:
+            group_type_matches.append("procedure_cohort")
+
+        search_clauses = [
+            Mouse.strain.ilike(like_value),
+            Mouse.cage.ilike(like_value),
+            Mouse.rack_location.ilike(like_value),
+            Mouse.notes.ilike(like_value),
+            Mouse.project.ilike(like_value),
+            Mouse.owner_pi.ilike(like_value),
+            Mouse.requisition_number.ilike(like_value),
+            Mouse.group_type.ilike(like_value),
+        ]
+        if group_type_matches:
+            search_clauses.append(Mouse.group_type.in_(group_type_matches))
+        query = query.filter(or_(*search_clauses))
     if dob_start:
         query = query.filter(Mouse.dob >= dob_start)
     if dob_end:
@@ -1370,15 +1538,45 @@ def mice_list():
     strains = [row[0] for row in source_query.with_entities(Mouse.strain).distinct().order_by(Mouse.strain.asc())]
     genders = [row[0] for row in source_query.with_entities(Mouse.gender).distinct().order_by(Mouse.gender.asc())]
     genotypes = [row[0] for row in source_query.with_entities(Mouse.genotype).distinct().order_by(Mouse.genotype.asc())]
+    has_active_filters = any(
+        [
+            strain_filter,
+            group_type_filter,
+            gender_filter,
+            genotype_filter,
+            search_query,
+            dob_start,
+            dob_end,
+            sort_dob,
+            include_archived,
+        ]
+    )
+    collapse_state = request.args.get("collapse_search", "").strip()
+    if collapse_state in {"0", "1"}:
+        search_panel_open = collapse_state != "1"
+    else:
+        search_panel_open = not has_active_filters
+
+    strain_totals = {}
+    for mouse in mice:
+        strain_totals[mouse.strain] = strain_totals.get(mouse.strain, 0) + 1
+    strain_totals = sorted(strain_totals.items(), key=lambda item: (-item[1], item[0].lower()))
+    selected_strain_total = dict(strain_totals).get(strain_filter) if strain_filter else None
 
     return render_template(
         "mice.html",
         mice=mice,
         strains=strains,
-        group_types=["genetic_strain", "procedure_cohort"],
+        mouse_type_options=MOUSE_TYPE_OPTIONS,
         genders=genders,
         genotypes=genotypes,
         include_archived=include_archived,
+        has_active_filters=has_active_filters,
+        results_count=len(mice),
+        search_panel_open=search_panel_open,
+        search_query=search_query,
+        strain_totals=strain_totals,
+        selected_strain_total=selected_strain_total,
     )
 
 
@@ -1569,6 +1767,18 @@ def archive_scanned_mouse():
 @login_required
 def add_mouse():
     if request.method == "POST":
+        errors = validate_mouse_form(request.form)
+        if errors:
+            for error in errors:
+                flash(error, "danger")
+            return render_template(
+                "add_mouse.html",
+                form_values=build_mouse_form_values(form_data=request.form),
+                label_options=mouse_label_options(),
+                gender_options=COMMON_GENDER_OPTIONS,
+                genotype_options=COMMON_GENOTYPE_OPTIONS,
+                status_options=STATUS_OPTIONS,
+            )
         new_mouse = Mouse()
         apply_mouse_form(new_mouse, request.form)
         db.session.add(new_mouse)
@@ -1580,27 +1790,11 @@ def add_mouse():
 
     return render_template(
         "add_mouse.html",
-        strain_prefill=request.args.get("strain", ""),
-        gender_prefill=request.args.get("gender", "MALE"),
-        genotype_prefill=request.args.get("genotype", ""),
-        dob_prefill=display_date_us(request.args.get("dob", "")),
-        cage_prefill=request.args.get("cage", ""),
-        rack_location_prefill=request.args.get("rack_location", ""),
-        project_prefill="",
-        owner_pi_prefill=request.args.get("owner_pi", "") or DEFAULT_OWNER_PI,
-        protocol_number_prefill=DEFAULT_PROTOCOL_NUMBER,
-        animal_count_prefill="",
-        received_date_prefill="",
-        vendor_prefill="",
-        age_prefill=request.args.get("age", "") or calculate_age_from_dob(request.args.get("dob", "")),
-        weight_prefill="",
-        species_prefill="Mouse",
-        room_prefill=DEFAULT_ROOM,
-        requisition_number_prefill=request.args.get("requisition_number", ""),
-        cost_center_prefill="",
-        notes_prefill=request.args.get("notes", ""),
-        training_prefill=False,
+        form_values=build_mouse_form_values(request_args=request.args),
         label_options=mouse_label_options(),
+        gender_options=COMMON_GENDER_OPTIONS,
+        genotype_options=COMMON_GENOTYPE_OPTIONS,
+        status_options=STATUS_OPTIONS,
     )
 
 
@@ -1609,12 +1803,33 @@ def add_mouse():
 def edit_mouse(id):
     mouse = Mouse.query.get_or_404(id)
     if request.method == "POST":
+        errors = validate_mouse_form(request.form)
+        if errors:
+            for error in errors:
+                flash(error, "danger")
+            return render_template(
+                "edit_mouse.html",
+                mouse=mouse,
+                form_values=build_mouse_form_values(mouse=mouse, form_data=request.form),
+                label_options=mouse_label_options(),
+                gender_options=COMMON_GENDER_OPTIONS,
+                genotype_options=COMMON_GENOTYPE_OPTIONS,
+                status_options=STATUS_OPTIONS,
+            )
         apply_mouse_form(mouse, request.form)
         log_action("update", "mouse", mouse.id, f"Updated {mouse.strain} in cage {mouse.cage}")
         db.session.commit()
         flash("Mouse updated.", "success")
         return redirect(url_for("mice_list"))
-    return render_template("edit_mouse.html", mouse=mouse, label_options=mouse_label_options())
+    return render_template(
+        "edit_mouse.html",
+        mouse=mouse,
+        form_values=build_mouse_form_values(mouse=mouse),
+        label_options=mouse_label_options(),
+        gender_options=COMMON_GENDER_OPTIONS,
+        genotype_options=COMMON_GENOTYPE_OPTIONS,
+        status_options=STATUS_OPTIONS,
+    )
 
 
 @app.route("/delete_mouse/<int:id>", methods=["POST"])
@@ -1797,6 +2012,147 @@ def delete_calendar_event(event_id):
     return redirect(url_for("calendar_view"))
 
 
+def parse_positive_float(value):
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = float(raw)
+    except ValueError:
+        return None
+    return parsed if parsed > 0 else None
+
+
+def food_restriction_choices():
+    return (
+        active_mouse_query()
+        .order_by(Mouse.strain.asc(), Mouse.cage.asc(), Mouse.id.asc())
+        .all()
+    )
+
+
+def build_food_log_rows(logs, mice_by_id):
+    grouped = {}
+    for log in logs:
+        grouped.setdefault(log.mouse_id, []).append(log)
+
+    rows = []
+    for mouse_id, mouse_logs in grouped.items():
+        ordered = sorted(mouse_logs, key=lambda item: (item.date or "", item.id))
+        baseline = ordered[0].weight if ordered else None
+        previous = None
+        for item in ordered:
+            percent_original = round((item.weight / baseline) * 100, 2) if baseline else None
+            percent_change = round(((item.weight - previous) / previous) * 100, 2) if previous else None
+            rows.append(
+                {
+                    "log": item,
+                    "mouse": mice_by_id.get(item.mouse_id),
+                    "percent_original": percent_original,
+                    "percent_change": percent_change,
+                }
+            )
+            previous = item.weight
+    rows.sort(key=lambda row: (row["log"].date or "", row["log"].id), reverse=True)
+    return rows
+
+
+@app.route("/food-restriction", methods=["GET", "POST"])
+@login_required
+def food_restriction():
+    selected_mouse_id = (request.values.get("mouse_id") or "").strip()
+
+    if request.method == "POST":
+        date_value = normalize_date(request.form.get("date", ""))
+        person_performing = normalize_text_value(request.form.get("person_performing", ""))
+        weight_value = parse_positive_float(request.form.get("weight", ""))
+        food_given_value = parse_positive_float(request.form.get("food_given", ""))
+        condition_value = normalize_text_value(request.form.get("condition", "")) or "Good"
+        notes_value = (request.form.get("notes") or "").strip()
+
+        if not selected_mouse_id.isdigit():
+            flash("Select a mouse before saving a food restriction log.", "danger")
+            return redirect(url_for("food_restriction"))
+        if not date_value:
+            flash("A valid date is required.", "danger")
+            return redirect(url_for("food_restriction", mouse_id=selected_mouse_id))
+        if weight_value is None:
+            flash("Body weight must be a positive number.", "danger")
+            return redirect(url_for("food_restriction", mouse_id=selected_mouse_id))
+
+        mouse = active_mouse_query().filter_by(id=int(selected_mouse_id)).first()
+        if mouse is None:
+            flash("That mouse could not be found.", "danger")
+            return redirect(url_for("food_restriction"))
+
+        existing_log = Weight.query.filter_by(mouse_id=mouse.id, date=date_value).first()
+        if existing_log:
+            existing_log.weight = weight_value
+            existing_log.food_given = food_given_value
+            existing_log.person_performing = person_performing or None
+            existing_log.condition = condition_value or None
+            existing_log.notes = notes_value or None
+            log_action("update", "food_restriction", existing_log.id, f"Updated food restriction log for mouse {mouse.id} on {date_value}")
+            flash("Existing daily log updated for that mouse and date.", "info")
+        else:
+            new_log = Weight(
+                mouse_id=mouse.id,
+                date=date_value,
+                weight=weight_value,
+                food_given=food_given_value,
+                person_performing=person_performing or None,
+                condition=condition_value or None,
+                notes=notes_value or None,
+            )
+            db.session.add(new_log)
+            db.session.flush()
+            log_action("create", "food_restriction", new_log.id, f"Added food restriction log for mouse {mouse.id} on {date_value}")
+            flash("Food restriction log saved.", "success")
+        db.session.commit()
+        return redirect(url_for("food_restriction", mouse_id=mouse.id))
+
+    mice = food_restriction_choices()
+    selected_mouse = None
+    if selected_mouse_id.isdigit():
+        selected_mouse = next((mouse for mouse in mice if mouse.id == int(selected_mouse_id)), None)
+
+    latest_log = None
+    if selected_mouse is not None:
+        latest_log = (
+            Weight.query.filter_by(mouse_id=selected_mouse.id)
+            .order_by(Weight.date.desc(), Weight.id.desc())
+            .first()
+        )
+
+    log_query = Weight.query.order_by(Weight.date.desc(), Weight.id.desc())
+    if selected_mouse is not None:
+        log_query = log_query.filter_by(mouse_id=selected_mouse.id)
+    logs = log_query.limit(120).all()
+    mice_by_id = {mouse.id: mouse for mouse in mice}
+    log_rows = build_food_log_rows(logs, mice_by_id)
+
+    return render_template(
+        "food_restriction.html",
+        mice=mice,
+        selected_mouse=selected_mouse,
+        log_rows=log_rows,
+        latest_log=latest_log,
+        today=today_iso(),
+    )
+
+
+@app.route("/food-restriction/delete/<int:log_id>", methods=["POST"])
+@role_required("admin", "tech")
+def delete_food_restriction_log(log_id):
+    log = Weight.query.get_or_404(log_id)
+    mouse_id = log.mouse_id
+    log_action("delete", "food_restriction", log.id, f"Deleted food restriction log for mouse {mouse_id} on {log.date}")
+    db.session.delete(log)
+    db.session.commit()
+    flash("Food restriction log deleted.", "info")
+    return redirect(url_for("food_restriction", mouse_id=mouse_id))
+
+
 @app.route("/export")
 @login_required
 def export_page():
@@ -1810,25 +2166,64 @@ def export_csv(table):
     writer = csv.writer(output)
 
     if table == "mice":
-        writer.writerow(["ID", "Strain", "Group Type", "Gender", "Genotype", "DOB", "Cage", "Rack", "Training", "Project", "Active", "Deleted At", "Notes"])
-        for mouse in Mouse.query.order_by(Mouse.id.asc()).all():
-            writer.writerow(
-                [
-                    mouse.id,
-                    mouse.strain,
-                    classify_mouse_group(mouse),
-                    mouse.gender,
-                    mouse.genotype,
-                    mouse.dob,
-                    mouse.cage,
-                    mouse.rack_location or "",
-                    "Yes" if mouse.training else "No",
-                    mouse.project or "",
-                    "Yes" if mouse.is_active else "No",
-                    mouse.deleted_at or "",
-                    mouse.notes or "",
-                ]
-            )
+        headers = [
+            "ID",
+            "Strain",
+            "Mouse Type",
+            "Gender",
+            "Genotype",
+            "DOB",
+            "Cage",
+            "Rack",
+            "Training",
+            "Project",
+            "Active",
+            "Status",
+            "Deleted At",
+            "Notes",
+        ]
+        writer.writerow(["Mice Manager Lab Sheet"])
+        writer.writerow(["Generated At", datetime.now().strftime("%Y-%m-%d %H:%M")])
+        writer.writerow([])
+        mice = Mouse.query.order_by(Mouse.strain.asc(), Mouse.cage.asc(), Mouse.id.asc()).all()
+        current_strain = None
+        current_group = []
+
+        def flush_group(strain_name, group_rows):
+            if strain_name is None or not group_rows:
+                return
+            writer.writerow([f"Strain: {strain_name}", f"Total mice: {len(group_rows)}"])
+            writer.writerow(headers)
+            for mouse in group_rows:
+                writer.writerow(
+                    [
+                        mouse.id,
+                        mouse.strain,
+                        mouse_type_label(classify_mouse_group(mouse)),
+                        mouse.gender,
+                        mouse.genotype,
+                        mouse.dob,
+                        mouse.cage,
+                        mouse.rack_location or "",
+                        "Yes" if mouse.training else "No",
+                        mouse.project or "",
+                        "Yes" if mouse.is_active else "No",
+                        mouse.status or "active",
+                        mouse.deleted_at or "",
+                        mouse.notes or "",
+                    ]
+                )
+            writer.writerow([])
+
+        for mouse in mice:
+            if current_strain is None:
+                current_strain = mouse.strain
+            if mouse.strain != current_strain:
+                flush_group(current_strain, current_group)
+                current_strain = mouse.strain
+                current_group = []
+            current_group.append(mouse)
+        flush_group(current_strain, current_group)
     elif table == "breeding":
         writer.writerow(
             ["ID", "Male ID", "Female ID", "Pair Date", "Litter Count", "Litter Date", "Wean Date", "Status", "Notes"]
@@ -1873,7 +2268,8 @@ def export_csv(table):
         return "Invalid table name", 400
 
     response = Response(output.getvalue(), mimetype="text/csv")
-    response.headers["Content-Disposition"] = f"attachment; filename={table}_data.csv"
+    filename = "mice_by_strain_lab_sheet.csv" if table == "mice" else f"{table}_data.csv"
+    response.headers["Content-Disposition"] = f"attachment; filename={filename}"
     return response
 
 
@@ -1998,7 +2394,17 @@ def api_mice():
         room=DEFAULT_ROOM,
         requisition_number=normalize_text_value(payload.get("requisition_number") or "") or None,
         cost_center=normalize_text_value(payload.get("cost_center") or "") or None,
+        is_alive=bool(payload.get("is_alive", True)),
+        status="deceased" if str(payload.get("status") or "").strip().lower() == "deceased" else "active",
+        date_of_death=normalize_date(payload.get("date_of_death") or "") or None,
+        death_reason=normalize_text_value(payload.get("death_reason") or "") or None,
     )
+    if mouse.status != "deceased":
+        mouse.is_alive = True
+        mouse.date_of_death = None
+        mouse.death_reason = None
+    else:
+        mouse.is_alive = False
     db.session.add(mouse)
     db.session.commit()
     return jsonify(serialize_mouse(mouse)), 201
@@ -2010,7 +2416,7 @@ def api_update_mouse(mouse_id):
     mouse = Mouse.query.get_or_404(mouse_id)
     payload = request.get_json(silent=True) or {}
 
-    for field in ["gender", "genotype", "dob", "cage", "rack_location", "notes", "project", "owner_pi", "requisition_number", "cost_center"]:
+    for field in ["gender", "genotype", "dob", "cage", "rack_location", "notes", "project", "owner_pi", "requisition_number", "cost_center", "death_reason"]:
         if field in payload and payload[field] is not None:
             value = payload[field].strip() if isinstance(payload[field], str) else payload[field]
             setattr(mouse, field, value)
@@ -2033,6 +2439,18 @@ def api_update_mouse(mouse_id):
         mouse.cage = normalize_text_value(payload.get("cage") or "")
     if "species" in payload:
         mouse.species = normalize_species(payload.get("species") or "")
+    if "status" in payload:
+        mouse.status = "deceased" if str(payload.get("status") or "").strip().lower() == "deceased" else "active"
+    if "is_alive" in payload:
+        mouse.is_alive = bool(payload["is_alive"])
+    if mouse.status == "deceased":
+        mouse.is_alive = False
+        if "date_of_death" in payload:
+            mouse.date_of_death = normalize_date(payload.get("date_of_death") or "") or None
+    else:
+        mouse.is_alive = True
+        mouse.date_of_death = None
+        mouse.death_reason = None
     mouse.protocol_number = DEFAULT_PROTOCOL_NUMBER
     mouse.room = DEFAULT_ROOM
     mouse.vendor = None

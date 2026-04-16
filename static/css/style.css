@@ -1,17 +1,17 @@
 :root {
-  --bg: #0f172a;
-  --bg-soft: rgba(15, 23, 42, 0.78);
-  --panel: rgba(15, 23, 42, 0.72);
-  --panel-strong: rgba(15, 23, 42, 0.9);
-  --line: rgba(148, 163, 184, 0.22);
-  --text: #e5eef8;
-  --muted: #94a3b8;
-  --accent: #38bdf8;
-  --accent-strong: #0ea5e9;
-  --success: #22c55e;
+  --bg: #081511;
+  --bg-soft: rgba(8, 21, 17, 0.82);
+  --panel: rgba(9, 28, 22, 0.76);
+  --panel-strong: rgba(7, 22, 18, 0.92);
+  --line: rgba(133, 198, 172, 0.2);
+  --text: #e8f5ef;
+  --muted: #a5c5b9;
+  --accent: #7de2b1;
+  --accent-strong: #57c994;
+  --success: #58c97d;
   --warning: #f59e0b;
   --danger: #ef4444;
-  --shadow: 0 20px 45px rgba(2, 6, 23, 0.35);
+  --shadow: 0 20px 45px rgba(2, 10, 7, 0.38);
   --radius: 18px;
 }
 
@@ -25,7 +25,7 @@ body {
   font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   color: var(--text);
   background:
-    linear-gradient(180deg, rgba(15, 23, 42, 0.82), rgba(15, 23, 42, 0.95)),
+    linear-gradient(180deg, rgba(8, 21, 17, 0.84), rgba(8, 21, 17, 0.96)),
     url("../img/bg.jpg") center / cover fixed;
 }
 
@@ -99,8 +99,8 @@ a {
 .nav a:hover,
 .nav a.active {
   color: var(--text);
-  border-color: rgba(56, 189, 248, 0.3);
-  background: rgba(56, 189, 248, 0.12);
+  border-color: rgba(125, 226, 177, 0.28);
+  background: rgba(125, 226, 177, 0.12);
 }
 
 .panel {
@@ -147,6 +147,35 @@ a {
   margin-bottom: 18px;
 }
 
+.results-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.results-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+}
+
+.search-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.compact-section-header h3 {
+  font-size: 1.05rem;
+}
+
+.search-panel.collapsed {
+  display: none;
+}
+
 .section-header h2,
 .section-header h3,
 h2,
@@ -170,7 +199,7 @@ button,
   border-radius: 12px;
   border: 1px solid transparent;
   background: var(--accent);
-  color: #052033;
+  color: #0b231a;
   font-weight: 700;
   cursor: pointer;
 }
@@ -218,6 +247,18 @@ form {
   gap: 8px;
 }
 
+.compact-filter-bar {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.compact-field {
+  width: min(360px, 100%);
+}
+
 .field.full {
   grid-column: 1 / -1;
 }
@@ -241,8 +282,8 @@ textarea {
 input:focus,
 select:focus,
 textarea:focus {
-  outline: 2px solid rgba(56, 189, 248, 0.22);
-  border-color: rgba(56, 189, 248, 0.45);
+  outline: 2px solid rgba(125, 226, 177, 0.22);
+  border-color: rgba(125, 226, 177, 0.45);
 }
 
 select option {
@@ -435,6 +476,10 @@ textarea {
 
 .table-wrap {
   overflow-x: auto;
+}
+
+.muted {
+  color: var(--muted);
 }
 
 table {

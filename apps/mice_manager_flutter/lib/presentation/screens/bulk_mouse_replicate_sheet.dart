@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/constants/app_constants.dart';
 import '../../domain/models/mouse.dart';
 import '../state/mice_controller.dart';
 
@@ -43,7 +44,7 @@ class _BulkMouseReplicateSheetState extends State<BulkMouseReplicateSheet> {
     _cageControllers
       ..clear()
       ..addAll([
-        TextEditingController(text: firstCage),
+        TextEditingController(text: AppConstants.cageCardDigits(firstCage)),
         TextEditingController(),
         TextEditingController(),
       ]);
@@ -114,13 +115,14 @@ class _BulkMouseReplicateSheetState extends State<BulkMouseReplicateSheet> {
           Expanded(
             child: TextFormField(
               controller: _cageControllers[index],
-              textCapitalization: TextCapitalization.characters,
+              keyboardType: TextInputType.number,
               decoration: InputDecoration(
-                labelText: 'Cage card ${index + 1}',
-                hintText: 'CC001234',
+                labelText: 'CC number ${index + 1}',
+                hintText: '001234',
+                prefixText: 'CC',
               ),
               validator: (value) {
-                final text = value?.trim().toUpperCase() ?? '';
+                final text = AppConstants.normalizeCageCardNumber(value ?? '');
                 if (text.isEmpty) {
                   return 'Required';
                 }

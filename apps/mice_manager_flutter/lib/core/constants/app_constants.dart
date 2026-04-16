@@ -22,4 +22,27 @@ class AppConstants {
     'Positive',
     'Negative',
   ];
+
+  static String normalizeCageCardNumber(String raw) {
+    final normalized = raw.trim().toUpperCase();
+    if (normalized.isEmpty) {
+      return '';
+    }
+    if (normalized.startsWith('CC')) {
+      return normalized;
+    }
+    final numericOnly = RegExp(r'^\d+$');
+    if (numericOnly.hasMatch(normalized)) {
+      return 'CC$normalized';
+    }
+    return normalized;
+  }
+
+  static String cageCardDigits(String raw) {
+    final normalized = raw.trim().toUpperCase();
+    if (normalized.startsWith('CC')) {
+      return normalized.substring(2);
+    }
+    return normalized;
+  }
 }

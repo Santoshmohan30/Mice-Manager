@@ -47,7 +47,7 @@ class FoodRestrictionScreen extends StatelessWidget {
                         children: [
                           Expanded(
                             child: _TopStat(
-                              title: 'Active Experiments',
+                              title: 'Active Study Types',
                               value: controller.activeExperimentCount.toString(),
                               color: const Color(0xFF2563EB),
                             ),
@@ -63,9 +63,9 @@ class FoodRestrictionScreen extends StatelessWidget {
                           const SizedBox(width: 12),
                           Expanded(
                             child: _TopStat(
-                              title: 'Low Weight Alerts',
-                              value: controller.lowWeightAlertCount.toString(),
-                              color: const Color(0xFFDC2626),
+                              title: 'Baseline Entries',
+                              value: controller.trackedMouseCount.toString(),
+                              color: const Color(0xFFF59E0B),
                             ),
                           ),
                         ],
@@ -81,7 +81,7 @@ class FoodRestrictionScreen extends StatelessWidget {
                     child: FilledButton.icon(
                       onPressed: () => _openExperimentEditor(context),
                       icon: const Icon(Icons.science_outlined),
-                      label: const Text('Add Experiment'),
+                      label: const Text('Add Study Type'),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -108,9 +108,9 @@ class FoodRestrictionScreen extends StatelessWidget {
                   child: Padding(
                     padding: EdgeInsets.all(16),
                     child: Text(
-                      'No food restriction experiments yet. Add one to start daily weight and food tracking.',
+                      'No food restriction study types yet. Add one to start daily weight and food tracking.',
                     ),
-                  ),
+                ),
                 ),
               ...experiments.map(
                 (experiment) => Padding(
@@ -216,7 +216,7 @@ class _ExperimentDetailScreen extends StatelessWidget {
             title: Text(experiment.name),
             actions: [
               IconButton(
-                tooltip: 'Export experiment CSV',
+            tooltip: 'Export study CSV',
                 onPressed: () async {
                   final path = await controller.exportExperimentCsv(experiment);
                   if (!context.mounted) {
@@ -812,6 +812,11 @@ class _DailyTrackerSheetScreenState extends State<_DailyTrackerSheetScreen> {
         title: Text('${widget.mouse.mouseName} Daily Tracker'),
         actions: [
           IconButton(
+            tooltip: 'Save all rows',
+            onPressed: _loading ? null : _saveAllDrafts,
+            icon: const Icon(Icons.save_as_outlined),
+          ),
+          IconButton(
             tooltip: 'Add row',
             onPressed: _addRow,
             icon: const Icon(Icons.add),
@@ -833,7 +838,12 @@ class _DailyTrackerSheetScreenState extends State<_DailyTrackerSheetScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Edit daily rows directly on the phone. First saved weight stays the 100% baseline.',
+                    '${widget.mouse.mouseName} • ${widget.mouse.serialNo} • ${widget.mouse.mouseType}',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Edit day-by-day rows directly on the phone. Day 1 is the 100% baseline for this mouse.',
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                 ],
@@ -848,6 +858,7 @@ class _DailyTrackerSheetScreenState extends State<_DailyTrackerSheetScreen> {
               child: _DailyTrackerRowCard(
                 draft: _drafts[index],
                 computed: computed[index],
+                rowNumber: index + 1,
                 onSave: () => _saveDraft(_drafts[index]),
                 onDelete: () => _deleteDraft(_drafts[index]),
                 saving: _loading,
@@ -982,6 +993,67 @@ class _DailyTrackerSheetScreenState extends State<_DailyTrackerSheetScreen> {
     }
   }
 
+  Future<void> _saveAllDrafts() async {
+    final validDrafts = _drafts.where((draft) {
+      final parsedDate = draft.parsedDate;
+      final parsedWeight = draft.parsedWeight;
+      return parsedDate != null && parsedWeight != null && parsedWeight > 0;
+    }).toList();
+
+    if (validDrafts.isEmpty) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Add at least one valid dated weight row first.')),
+      );
+      return;
+    }
+
+    setState(() => _loading = true);
+    try {
+      for (var index = 0; index < validDrafts.length; index += 1) {
+        final draft = validDrafts[index];
+        final parsedDate = draft.parsedDate!;
+        final parsedWeight = draft.parsedWeight!;
+        final timestamp = DateTime.now().add(Duration(microseconds: index));
+        await widget.controller.saveEntry(
+          FoodRestrictionEntry(
+            id: draft.entryId ?? 'fr-entry-${timestamp.microsecondsSinceEpoch}',
+            experimentMouseId: widget.mouse.id,
+            entryDate: DateTime(parsedDate.year, parsedDate.month, parsedDate.day),
+            personPerforming: draft.personController.text.trim(),
+            weightGrams: parsedWeight,
+            foodWeightGrams: double.tryParse(draft.foodController.text.trim()),
+            conditionLabel: _emptyToNull(draft.conditionController.text),
+            notes: _emptyToNull(draft.notesController.text),
+            createdAt: draft.createdAt ?? timestamp,
+            updatedAt: timestamp,
+          ),
+        );
+      }
+      await widget.controller.load();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _loading = false;
+        _rebuildDrafts();
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Saved ${validDrafts.length} daily tracker row(s).')),
+      );
+    } on DuplicateFoodRestrictionEntryException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _loading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
+    }
+  }
+
   Future<void> _deleteDraft(_EntryDraft draft) async {
     if (draft.entryId == null) {
       setState(() {
@@ -1010,6 +1082,7 @@ class _DailyTrackerRowCard extends StatelessWidget {
   const _DailyTrackerRowCard({
     required this.draft,
     required this.computed,
+    required this.rowNumber,
     required this.onSave,
     required this.onDelete,
     required this.saving,
@@ -1017,6 +1090,7 @@ class _DailyTrackerRowCard extends StatelessWidget {
 
   final _EntryDraft draft;
   final _DraftComputed computed;
+  final int rowNumber;
   final VoidCallback onSave;
   final VoidCallback onDelete;
   final bool saving;
@@ -1041,7 +1115,7 @@ class _DailyTrackerRowCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    draft.entryId == null ? 'New Row' : 'Saved Row',
+                    'Day $rowNumber',
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                 ),
@@ -1252,7 +1326,7 @@ class _ExperimentCard extends StatelessWidget {
                 children: [
                   _InfoChip('Mice', '$miceCount'),
                   const SizedBox(width: 8),
-                  _InfoChip('Low Alerts', '$latestAlertCount'),
+                  _InfoChip('Below 80%', '$latestAlertCount'),
                   const SizedBox(width: 8),
                   _InfoChip('Started', _formatDate(experiment.startedAt)),
                 ],

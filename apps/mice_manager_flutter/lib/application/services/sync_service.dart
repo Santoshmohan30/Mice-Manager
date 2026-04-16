@@ -97,44 +97,7 @@ class SyncService {
     final path =
         '${directory.path}/mice-export-${timestamp.millisecondsSinceEpoch}.csv';
     final file = File(path);
-    final rows = <List<String>>[
-      [
-        'id',
-        'housing_type',
-        'strain',
-        'gender',
-        'genotype',
-        'date_of_birth',
-        'age_bucket',
-        'age_days',
-        'cage_number',
-        'rack_number',
-        'rack_location',
-        'room',
-        'is_alive',
-        'status',
-        'notes',
-      ],
-      ...mice.map(
-        (mouse) => [
-          mouse.id,
-          mouse.housingType.storageValue,
-          mouse.strain,
-          mouse.gender,
-          mouse.genotype,
-          mouse.dateOfBirth.toIso8601String(),
-          mouse.ageBucketLabel,
-          mouse.ageInDays.toString(),
-          mouse.cageNumber,
-          mouse.rackNumber ?? '',
-          mouse.rackLocation ?? '',
-          mouse.room ?? '',
-          mouse.isAlive ? 'true' : 'false',
-          mouse.status,
-          mouse.notes ?? '',
-        ],
-      ),
-    ];
+    final rows = _buildGroupedMouseExportRows(mice);
     final csv = rows.map((row) => row.map(_csvEscape).join(',')).join('\n');
     await file.writeAsString(csv);
     return path;
@@ -147,44 +110,7 @@ class SyncService {
         '${directory.path}/mice-export-${timestamp.millisecondsSinceEpoch}.xlsx';
     final excel = Excel.createExcel();
     final sheet = excel['Mice'];
-    final rows = <List<String>>[
-      [
-        'ID',
-        'Housing Type',
-        'Strain',
-        'Gender',
-        'Genotype',
-        'Date of Birth',
-        'Age Bucket',
-        'Age Days',
-        'Cage Number',
-        'Rack Number',
-        'Rack Location',
-        'Room',
-        'Is Alive',
-        'Status',
-        'Notes',
-      ],
-      ...mice.map(
-        (mouse) => [
-          mouse.id,
-          mouse.housingType.storageValue,
-          mouse.strain,
-          mouse.gender,
-          mouse.genotype,
-          mouse.dateOfBirth.toIso8601String(),
-          mouse.ageBucketLabel,
-          mouse.ageInDays.toString(),
-          mouse.cageNumber,
-          mouse.rackNumber ?? '',
-          mouse.rackLocation ?? '',
-          mouse.room ?? '',
-          mouse.isAlive ? 'true' : 'false',
-          mouse.status,
-          mouse.notes ?? '',
-        ],
-      ),
-    ];
+    final rows = _buildGroupedMouseExportRows(mice);
     for (var rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
       final row = rows[rowIndex];
       for (var columnIndex = 0; columnIndex < row.length; columnIndex += 1) {
@@ -202,6 +128,96 @@ class SyncService {
     }
     await File(path).writeAsBytes(bytes, flush: true);
     return path;
+  }
+
+  List<List<String>> _buildGroupedMouseExportRows(List<Mouse> mice) {
+    final rows = <List<String>>[
+      ['Mice Manager Lab Sheet'],
+      ['Generated At', DateTime.now().toIso8601String()],
+      [],
+    ];
+    final sorted = [...mice]
+      ..sort((a, b) {
+        final strainCompare = a.strain.compareTo(b.strain);
+        if (strainCompare != 0) {
+          return strainCompare;
+        }
+        final cageCompare = a.cageNumber.compareTo(b.cageNumber);
+        if (cageCompare != 0) {
+          return cageCompare;
+        }
+        return a.id.compareTo(b.id);
+      });
+
+    final headers = [
+      'ID',
+      'Housing Type',
+      'Strain',
+      'Gender',
+      'Genotype',
+      'Date of Birth',
+      'Age Bucket',
+      'Age Days',
+      'Cage Number',
+      'Rack Number',
+      'Row / Rack Location',
+      'Cranial Window',
+      'Implanted',
+      'Green Lens',
+      'Room',
+      'Is Alive',
+      'Status',
+      'Notes',
+    ];
+
+    String? activeStrain;
+    final group = <Mouse>[];
+
+    void flushGroup() {
+      if (activeStrain == null || group.isEmpty) {
+        return;
+      }
+      rows.add(['Strain: $activeStrain', 'Total mice: ${group.length}']);
+      rows.add(headers);
+      for (final mouse in group) {
+        rows.add([
+          mouse.id,
+          mouse.housingType.storageValue,
+          mouse.strain,
+          mouse.gender,
+          mouse.genotype,
+          mouse.dateOfBirth.toIso8601String(),
+          mouse.ageBucketLabel,
+          mouse.ageInDays.toString(),
+          mouse.cageNumber,
+          mouse.rackNumber ?? '',
+          mouse.exactRackLocation ?? '',
+          mouse.hasCranialWindow ? 'true' : 'false',
+          mouse.isImplanted ? 'true' : 'false',
+          mouse.hasGreenLens ? 'true' : 'false',
+          mouse.room ?? '',
+          mouse.isAlive ? 'true' : 'false',
+          mouse.status,
+          mouse.notes ?? '',
+        ]);
+      }
+      rows.add([]);
+    }
+
+    for (final mouse in sorted) {
+      activeStrain ??= mouse.strain;
+      if (mouse.strain != activeStrain) {
+        flushGroup();
+        group
+          ..clear()
+          ..add(mouse);
+        activeStrain = mouse.strain;
+      } else {
+        group.add(mouse);
+      }
+    }
+    flushGroup();
+    return rows;
   }
 
   Future<String> buildQuickSyncPayload({

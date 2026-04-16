@@ -26,6 +26,7 @@ enum MouseAgeFilter {
   month11,
   month12,
   aboveOneYear,
+  aboveTwoYears,
 }
 
 extension MouseAgeFilterX on MouseAgeFilter {
@@ -59,6 +60,8 @@ extension MouseAgeFilterX on MouseAgeFilter {
         return '12 month old';
       case MouseAgeFilter.aboveOneYear:
         return '1+ year old';
+      case MouseAgeFilter.aboveTwoYears:
+        return '2+ years old';
     }
   }
 }
@@ -98,30 +101,39 @@ class MiceController extends ChangeNotifier {
 
   List<Mouse> get allMice => _mice;
 
-  List<Mouse> get mice {
+  List<Mouse> _filteredMice({bool ignoreStrainFilter = false}) {
     return _mice.where((mouse) {
       final housingMatches = switch (_filter) {
         HousingFilter.laf => mouse.housingType == HousingType.laf,
         HousingFilter.lab => mouse.housingType == HousingType.lab,
         HousingFilter.all => true,
       };
-      final strainMatches =
+      final strainMatches = ignoreStrainFilter ||
           _strainFilter == 'All strains' || mouse.strain == _strainFilter;
       final genderMatches =
           _genderFilter == 'All genders' || mouse.gender == _genderFilter;
       final genotypeMatches = _genotypeFilter == 'All genotypes' ||
           mouse.genotype == _genotypeFilter;
       final ageMatches = _matchesAgeFilter(mouse);
-      final cageMatches = _cageSearch.isEmpty ||
-          mouse.cageNumber.toUpperCase().contains(_cageSearch);
+      final query = _cageSearch.trim().toUpperCase();
+      final searchMatches = query.isEmpty ||
+          mouse.cageNumber.toUpperCase().contains(query) ||
+          mouse.strain.toUpperCase().contains(query) ||
+          mouse.gender.toUpperCase().contains(query) ||
+          mouse.genotype.toUpperCase().contains(query) ||
+          (mouse.rackNumber ?? '').toUpperCase().contains(query) ||
+          (mouse.exactRackLocation ?? '').toUpperCase().contains(query) ||
+          mouse.locationSummary.toUpperCase().contains(query);
       return housingMatches &&
           strainMatches &&
           genderMatches &&
           genotypeMatches &&
           ageMatches &&
-          cageMatches;
+          searchMatches;
     }).toList();
   }
+
+  List<Mouse> get mice => _filteredMice();
 
   bool get isLoading => _isLoading;
   HousingFilter get filter => _filter;
@@ -131,10 +143,29 @@ class MiceController extends ChangeNotifier {
   MouseAgeFilter get ageFilter => _ageFilter;
   String get cageSearch => _cageSearch;
   int get totalCount => _mice.length;
+  int get currentResultsCount => mice.length;
   int get lafCount =>
       _mice.where((mouse) => mouse.housingType == HousingType.laf).length;
   int get labCount =>
       _mice.where((mouse) => mouse.housingType == HousingType.lab).length;
+  int? get selectedStrainTotal =>
+      _strainFilter == 'All strains' ? null : mice.length;
+
+  List<MapEntry<String, int>> get strainTotals {
+    final totals = <String, int>{};
+    for (final mouse in _filteredMice(ignoreStrainFilter: true)) {
+      totals[mouse.strain] = (totals[mouse.strain] ?? 0) + 1;
+    }
+    final items = totals.entries.toList()
+      ..sort((a, b) {
+        final countCompare = b.value.compareTo(a.value);
+        if (countCompare != 0) {
+          return countCompare;
+        }
+        return a.key.compareTo(b.key);
+      });
+    return items;
+  }
 
   Future<void> load() async {
     _isLoading = true;
@@ -170,7 +201,7 @@ class MiceController extends ChangeNotifier {
   }
 
   void setCageSearch(String value) {
-    _cageSearch = value.trim().toUpperCase();
+    _cageSearch = value.trim();
     notifyListeners();
   }
 
@@ -197,8 +228,12 @@ class MiceController extends ChangeNotifier {
     required DateTime dateOfBirth,
     required String cageNumber,
     String? rackNumber,
-    required String rackLocation,
+    String? rowNumber,
+    String? rackLocation,
     String? notes,
+    bool hasCranialWindow = false,
+    bool isImplanted = false,
+    bool hasGreenLens = false,
   }) async {
     final now = DateTime.now();
     final mouse = Mouse(
@@ -210,7 +245,12 @@ class MiceController extends ChangeNotifier {
       dateOfBirth: dateOfBirth,
       cageNumber: cageNumber.trim(),
       rackNumber: rackNumber?.trim().isEmpty ?? true ? null : rackNumber?.trim(),
-      rackLocation: rackLocation.trim(),
+      rowNumber: rowNumber?.trim().isEmpty ?? true ? null : rowNumber?.trim(),
+      rackLocation:
+          rackLocation?.trim().isEmpty ?? true ? null : rackLocation?.trim(),
+      hasCranialWindow: hasCranialWindow,
+      isImplanted: isImplanted,
+      hasGreenLens: hasGreenLens,
       room: AppConstants.defaultRoom,
       isAlive: true,
       status: 'Active',
@@ -238,6 +278,16 @@ class MiceController extends ChangeNotifier {
     await load();
   }
 
+  Future<void> markMouseGenotype(Mouse mouse, String genotype) async {
+    await _mouseService.save(
+      mouse.copyWith(
+        genotype: genotype,
+        updatedAt: DateTime.now(),
+      ),
+    );
+    await load();
+  }
+
   Future<void> deleteMouse(String mouseId) async {
     await _mouseService.delete(mouseId);
     await load();
@@ -252,7 +302,7 @@ class MiceController extends ChangeNotifier {
     final skipped = <String>[];
 
     for (final raw in cageNumbers) {
-      final cage = raw.trim().toUpperCase();
+      final cage = AppConstants.normalizeCageCardNumber(raw);
       if (cage.isEmpty || !seen.add(cage)) {
         if (cage.isNotEmpty) {
           skipped.add(cage);
@@ -292,6 +342,9 @@ class MiceController extends ChangeNotifier {
     }
     if (_ageFilter == MouseAgeFilter.aboveOneYear) {
       return mouse.ageInMonths >= 12;
+    }
+    if (_ageFilter == MouseAgeFilter.aboveTwoYears) {
+      return mouse.ageInMonths >= 24;
     }
     final targetMonth = MouseAgeFilter.values.indexOf(_ageFilter);
     return mouse.ageInMonths == targetMonth;

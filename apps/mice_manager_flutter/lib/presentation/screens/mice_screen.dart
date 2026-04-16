@@ -6,7 +6,7 @@ import '../../domain/models/mouse.dart';
 import 'bulk_mouse_replicate_sheet.dart';
 import '../state/mice_controller.dart';
 
-class MiceScreen extends StatelessWidget {
+class MiceScreen extends StatefulWidget {
   const MiceScreen({
     super.key,
     required this.controller,
@@ -15,14 +15,29 @@ class MiceScreen extends StatelessWidget {
   final MiceController controller;
 
   @override
+  State<MiceScreen> createState() => _MiceScreenState();
+}
+
+class _MiceScreenState extends State<MiceScreen> {
+  bool _showAdvancedSearch = false;
+
+  bool get _hasAdvancedFilters =>
+      widget.controller.strainFilter != 'All strains' ||
+      widget.controller.genderFilter != 'All genders' ||
+      widget.controller.genotypeFilter != 'All genotypes' ||
+      widget.controller.ageFilter != MouseAgeFilter.all ||
+      widget.controller.filter != HousingFilter.all;
+
+  @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: controller,
+      animation: widget.controller,
       builder: (context, _) {
-        if (controller.isLoading) {
+        if (widget.controller.isLoading) {
           return const Center(child: CircularProgressIndicator());
         }
 
+        final controller = widget.controller;
         final mice = controller.mice;
         return Scaffold(
           body: Column(
@@ -30,6 +45,7 @@ class MiceScreen extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
                       children: [
@@ -56,130 +72,234 @@ class MiceScreen extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    SegmentedButton<HousingFilter>(
-                      segments: const [
-                        ButtonSegment(
-                            value: HousingFilter.all, label: Text('All')),
-                        ButtonSegment(
-                            value: HousingFilter.laf, label: Text('LAF')),
-                        ButtonSegment(
-                            value: HousingFilter.lab, label: Text('LAB')),
-                      ],
-                      selected: {controller.filter},
-                      onSelectionChanged: (selection) {
-                        controller.setFilter(selection.first);
-                      },
-                    ),
-                    const SizedBox(height: 12),
                     Row(
                       children: [
                         Expanded(
-                          child: DropdownButtonFormField<String>(
-                            initialValue: controller.strainFilter,
-                            decoration:
-                                const InputDecoration(labelText: 'Strain'),
-                            items: controller.availableStrains
-                                .map(
-                                  (value) => DropdownMenuItem(
-                                    value: value,
-                                    child: Text(value),
-                                  ),
-                                )
-                                .toList(),
-                            onChanged: (value) {
-                              if (value != null) {
-                                controller.setStrainFilter(value);
-                              }
-                            },
+                          child: TextFormField(
+                            key: ValueKey(controller.cageSearch),
+                            initialValue: controller.cageSearch,
+                            textCapitalization: TextCapitalization.characters,
+                            decoration: InputDecoration(
+                              labelText: 'Search mice',
+                              hintText: 'CC number, strain, rack, genotype',
+                              isDense: true,
+                              suffixIcon: controller.cageSearch.isEmpty
+                                  ? null
+                                  : IconButton(
+                                      onPressed: () {
+                                        controller.setCageSearch('');
+                                      },
+                                      icon: const Icon(Icons.clear),
+                                    ),
+                            ),
+                            onChanged: controller.setCageSearch,
                           ),
                         ),
                         const SizedBox(width: 12),
-                        Expanded(
-                          child: DropdownButtonFormField<String>(
-                            initialValue: controller.genderFilter,
-                            decoration:
-                                const InputDecoration(labelText: 'Gender'),
-                            items: controller.availableGenders
-                                .map(
-                                  (value) => DropdownMenuItem(
-                                    value: value,
-                                    child: Text(value),
-                                  ),
-                                )
-                                .toList(),
-                            onChanged: (value) {
-                              if (value != null) {
-                                controller.setGenderFilter(value);
-                              }
-                            },
+                        IconButton.filledTonal(
+                          onPressed: () {
+                            setState(
+                              () => _showAdvancedSearch = !_showAdvancedSearch,
+                            );
+                          },
+                          icon: Icon(
+                            _showAdvancedSearch
+                                ? Icons.expand_less
+                                : Icons.tune,
                           ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 12),
-                    Row(
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
                       children: [
-                        Expanded(
-                          child: DropdownButtonFormField<String>(
-                            initialValue: controller.genotypeFilter,
-                            decoration:
-                                const InputDecoration(labelText: 'Genotype'),
-                            items: controller.availableGenotypes
-                                .map(
-                                  (value) => DropdownMenuItem(
-                                    value: value,
-                                    child: Text(value),
-                                  ),
-                                )
-                                .toList(),
-                            onChanged: (value) {
-                              if (value != null) {
-                                controller.setGenotypeFilter(value);
-                              }
-                            },
-                          ),
+                        Chip(
+                          label: Text('${controller.currentResultsCount} mice'),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: DropdownButtonFormField<MouseAgeFilter>(
-                            initialValue: controller.ageFilter,
-                            decoration: const InputDecoration(labelText: 'Age'),
-                            items: MouseAgeFilter.values
-                                .map(
-                                  (value) => DropdownMenuItem(
-                                    value: value,
-                                    child: Text(value.label),
-                                  ),
-                                )
-                                .toList(),
-                            onChanged: (value) {
-                              if (value != null) {
-                                controller.setAgeFilter(value);
-                              }
-                            },
+                        if (controller.selectedStrainTotal != null)
+                          Chip(
+                            label: Text(
+                              '${controller.strainFilter}: ${controller.selectedStrainTotal}',
+                            ),
                           ),
-                        ),
+                        if (_hasAdvancedFilters)
+                          const Chip(label: Text('Advanced filters active')),
                       ],
                     ),
                     const SizedBox(height: 12),
-                    TextFormField(
-                      key: ValueKey(controller.cageSearch),
-                      initialValue: controller.cageSearch,
-                      textCapitalization: TextCapitalization.characters,
-                      decoration: InputDecoration(
-                        labelText: 'Find by cage card number',
-                        hintText: 'CC001234',
-                        suffixIcon: controller.cageSearch.isEmpty
-                            ? null
-                            : IconButton(
-                                onPressed: () {
-                                  controller.setCageSearch('');
-                                },
-                                icon: const Icon(Icons.clear),
+                    AnimatedCrossFade(
+                      duration: const Duration(milliseconds: 180),
+                      crossFadeState: _showAdvancedSearch || _hasAdvancedFilters
+                          ? CrossFadeState.showFirst
+                          : CrossFadeState.showSecond,
+                      firstChild: Column(
+                        children: [
+                          SegmentedButton<HousingFilter>(
+                            segments: const [
+                              ButtonSegment(
+                                value: HousingFilter.all,
+                                label: Text('All'),
                               ),
+                              ButtonSegment(
+                                value: HousingFilter.laf,
+                                label: Text('LAF'),
+                              ),
+                              ButtonSegment(
+                                value: HousingFilter.lab,
+                                label: Text('LAB'),
+                              ),
+                            ],
+                            selected: {controller.filter},
+                            onSelectionChanged: (selection) {
+                              controller.setFilter(selection.first);
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: DropdownButtonFormField<String>(
+                                  initialValue: controller.strainFilter,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Strain',
+                                    isDense: true,
+                                  ),
+                                  items: controller.availableStrains
+                                      .map(
+                                        (value) => DropdownMenuItem(
+                                          value: value,
+                                          child: Text(value),
+                                        ),
+                                      )
+                                      .toList(),
+                                  onChanged: (value) {
+                                    if (value != null) {
+                                      controller.setStrainFilter(value);
+                                    }
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: DropdownButtonFormField<String>(
+                                  initialValue: controller.genderFilter,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Gender',
+                                    isDense: true,
+                                  ),
+                                  items: controller.availableGenders
+                                      .map(
+                                        (value) => DropdownMenuItem(
+                                          value: value,
+                                          child: Text(value),
+                                        ),
+                                      )
+                                      .toList(),
+                                  onChanged: (value) {
+                                    if (value != null) {
+                                      controller.setGenderFilter(value);
+                                    }
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: DropdownButtonFormField<String>(
+                                  initialValue: controller.genotypeFilter,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Genotype',
+                                    isDense: true,
+                                  ),
+                                  items: controller.availableGenotypes
+                                      .map(
+                                        (value) => DropdownMenuItem(
+                                          value: value,
+                                          child: Text(value),
+                                        ),
+                                      )
+                                      .toList(),
+                                  onChanged: (value) {
+                                    if (value != null) {
+                                      controller.setGenotypeFilter(value);
+                                    }
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: DropdownButtonFormField<MouseAgeFilter>(
+                                  initialValue: controller.ageFilter,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Age',
+                                    isDense: true,
+                                  ),
+                                  items: MouseAgeFilter.values
+                                      .map(
+                                        (value) => DropdownMenuItem(
+                                          value: value,
+                                          child: Text(value.label),
+                                        ),
+                                      )
+                                      .toList(),
+                                  onChanged: (value) {
+                                    if (value != null) {
+                                      controller.setAgeFilter(value);
+                                    }
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: TextButton.icon(
+                              onPressed: () {
+                                controller
+                                  ..setFilter(HousingFilter.all)
+                                  ..setStrainFilter('All strains')
+                                  ..setGenderFilter('All genders')
+                                  ..setGenotypeFilter('All genotypes')
+                                  ..setAgeFilter(MouseAgeFilter.all)
+                                  ..setCageSearch('');
+                              },
+                              icon: const Icon(Icons.restart_alt),
+                              label: const Text('Reset filters'),
+                            ),
+                          ),
+                        ],
                       ),
-                      onChanged: controller.setCageSearch,
+                      secondChild: const SizedBox.shrink(),
                     ),
+                    if (controller.strainTotals.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: controller.strainTotals
+                              .take(8)
+                              .map(
+                                (entry) => Padding(
+                                  padding: const EdgeInsets.only(right: 8),
+                                  child: ActionChip(
+                                    label: Text('${entry.key} (${entry.value})'),
+                                    onPressed: () {
+                                      controller.setStrainFilter(entry.key);
+                                      setState(() => _showAdvancedSearch = true);
+                                    },
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -245,7 +365,8 @@ class MiceScreen extends StatelessWidget {
               await showModalBottomSheet<void>(
                 context: context,
                 isScrollControlled: true,
-                builder: (context) => _MouseEditorSheet(controller: controller),
+                builder: (context) =>
+                    _MouseEditorSheet(controller: controller),
               );
             },
             icon: const Icon(Icons.add),
@@ -347,8 +468,17 @@ class _MouseCard extends StatelessWidget {
               Text('DOB: ${_formatDate(mouse.dateOfBirth)}'),
               Text('Age: ${mouse.ageBucketLabel} (${mouse.ageInDays} days)'),
               Text('Location: ${mouse.locationSummary}'),
-              Text('Rack note: ${mouse.rackLocation ?? '-'}'),
               Text('Room: ${mouse.room ?? '-'}'),
+              if (mouse.procedureMarkers.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: mouse.procedureMarkers
+                      .map((marker) => Chip(label: Text(marker)))
+                      .toList(),
+                ),
+              ],
               const SizedBox(height: 6),
               Text('Status: ${mouse.status}'),
             ],
@@ -379,11 +509,14 @@ class _MouseEditorSheetState extends State<_MouseEditorSheet> {
   late final TextEditingController _dobController;
   late final TextEditingController _cageController;
   late final TextEditingController _rackNumberController;
-  late final TextEditingController _rackController;
+  late final TextEditingController _rowController;
   late final TextEditingController _notesController;
   late HousingType _housingType;
   late String _selectedGender;
   late String _selectedGenotype;
+  late bool _hasCranialWindow;
+  late bool _isImplanted;
+  late bool _hasGreenLens;
   bool _saving = false;
 
   bool get _isEditing => widget.existingMouse != null;
@@ -396,6 +529,9 @@ class _MouseEditorSheetState extends State<_MouseEditorSheet> {
     _selectedGender = existing?.gender ?? AppConstants.supportedGenders.first;
     _selectedGenotype =
         existing?.genotype ?? AppConstants.supportedGenotypes.first;
+    _hasCranialWindow = existing?.hasCranialWindow ?? false;
+    _isImplanted = existing?.isImplanted ?? false;
+    _hasGreenLens = existing?.hasGreenLens ?? false;
     _strainController = TextEditingController(
       text: existing?.strain ?? AppConstants.supportedStrains.first,
     );
@@ -403,10 +539,16 @@ class _MouseEditorSheetState extends State<_MouseEditorSheet> {
     _dobController = TextEditingController(
       text: existing == null ? '03/01/2026' : _formatDate(existing.dateOfBirth),
     );
-    _cageController = TextEditingController(text: existing?.cageNumber ?? '');
+    _cageController = TextEditingController(
+      text: existing == null
+          ? ''
+          : AppConstants.cageCardDigits(existing.cageNumber),
+    );
     _rackNumberController =
         TextEditingController(text: existing?.rackNumber ?? '');
-    _rackController = TextEditingController(text: existing?.rackLocation ?? '');
+    _rowController = TextEditingController(
+      text: existing?.exactRackLocation ?? '',
+    );
     _notesController = TextEditingController(text: existing?.notes ?? '');
   }
 
@@ -417,7 +559,7 @@ class _MouseEditorSheetState extends State<_MouseEditorSheet> {
     _dobController.dispose();
     _cageController.dispose();
     _rackNumberController.dispose();
-    _rackController.dispose();
+    _rowController.dispose();
     _notesController.dispose();
     super.dispose();
   }
@@ -518,9 +660,12 @@ class _MouseEditorSheetState extends State<_MouseEditorSheet> {
               const SizedBox(height: 12),
               _buildField(
                 _cageController,
-                'Cage number',
+                'CC number',
+                keyboardType: TextInputType.number,
+                prefixText: 'CC',
                 validator: (value) {
-                  final text = value?.trim() ?? '';
+                  final text =
+                      AppConstants.normalizeCageCardNumber(value ?? '');
                   if (text.isEmpty) {
                     return 'Required';
                   }
@@ -533,10 +678,10 @@ class _MouseEditorSheetState extends State<_MouseEditorSheet> {
               const SizedBox(height: 12),
               _buildField(_rackNumberController, 'Rack number'),
               const SizedBox(height: 12),
-              _buildField(_rackController, 'Rack location'),
+              _buildField(_rowController, 'Row / rack location'),
               const SizedBox(height: 6),
               Text(
-                'Use Rack number for the main rack and Rack location for any extra rack note.',
+                'Use Rack number like 3 and Row / rack location like 7E.',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
               const SizedBox(height: 12),
@@ -550,6 +695,42 @@ class _MouseEditorSheetState extends State<_MouseEditorSheet> {
                 controller: _notesController,
                 decoration: const InputDecoration(labelText: 'Notes'),
                 maxLines: 3,
+              ),
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Manual Procedure Marks',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  FilterChip(
+                    label: const Text('Cranial Window'),
+                    selected: _hasCranialWindow,
+                    onSelected: (value) {
+                      setState(() => _hasCranialWindow = value);
+                    },
+                  ),
+                  FilterChip(
+                    label: const Text('Implanted'),
+                    selected: _isImplanted,
+                    onSelected: (value) {
+                      setState(() => _isImplanted = value);
+                    },
+                  ),
+                  FilterChip(
+                    label: const Text('Grin Lens'),
+                    selected: _hasGreenLens,
+                    onSelected: (value) {
+                      setState(() => _hasGreenLens = value);
+                    },
+                  ),
+                ],
               ),
               const SizedBox(height: 20),
               Row(
@@ -589,9 +770,12 @@ class _MouseEditorSheetState extends State<_MouseEditorSheet> {
     TextEditingController controller,
     String label, {
     String? Function(String?)? validator,
+    TextInputType? keyboardType,
+    String? prefixText,
   }) {
     return TextFormField(
       controller: controller,
+      keyboardType: keyboardType,
       validator: validator ??
           (value) {
             if (value == null || value.trim().isEmpty) {
@@ -599,7 +783,10 @@ class _MouseEditorSheetState extends State<_MouseEditorSheet> {
             }
             return null;
           },
-      decoration: InputDecoration(labelText: label),
+      decoration: InputDecoration(
+        labelText: label,
+        prefixText: prefixText,
+      ),
     );
   }
 
@@ -624,9 +811,14 @@ class _MouseEditorSheetState extends State<_MouseEditorSheet> {
             gender: _selectedGender,
             genotype: _selectedGenotype,
             dateOfBirth: dob,
-            cageNumber: _cageController.text.trim().toUpperCase(),
+            cageNumber:
+                AppConstants.normalizeCageCardNumber(_cageController.text),
             rackNumber: _rackNumberController.text.trim(),
-            rackLocation: _rackController.text.trim(),
+            rowNumber: _rowController.text.trim(),
+            rackLocation: null,
+            hasCranialWindow: _hasCranialWindow,
+            isImplanted: _isImplanted,
+            hasGreenLens: _hasGreenLens,
             room: AppConstants.defaultRoom,
             notes: _notesController.text.trim().isEmpty
                 ? null
@@ -640,10 +832,14 @@ class _MouseEditorSheetState extends State<_MouseEditorSheet> {
           gender: _selectedGender,
           genotype: _selectedGenotype,
           dateOfBirth: dob,
-          cageNumber: _cageController.text.toUpperCase(),
+          cageNumber: AppConstants.normalizeCageCardNumber(_cageController.text),
           rackNumber: _rackNumberController.text,
-          rackLocation: _rackController.text,
+          rowNumber: _rowController.text,
+          rackLocation: null,
           notes: _notesController.text,
+          hasCranialWindow: _hasCranialWindow,
+          isImplanted: _isImplanted,
+          hasGreenLens: _hasGreenLens,
         );
       }
     } on DuplicateMouseException catch (error) {
@@ -680,9 +876,13 @@ class _MouseEditorSheetState extends State<_MouseEditorSheet> {
       gender: _selectedGender,
       genotype: _selectedGenotype,
       dateOfBirth: dob,
-      cageNumber: _cageController.text.trim().toUpperCase(),
+      cageNumber: AppConstants.normalizeCageCardNumber(_cageController.text),
       rackNumber: _rackNumberController.text.trim(),
-      rackLocation: _rackController.text.trim(),
+      rowNumber: _rowController.text.trim(),
+      rackLocation: null,
+      hasCranialWindow: _hasCranialWindow,
+      isImplanted: _isImplanted,
+      hasGreenLens: _hasGreenLens,
       room: AppConstants.defaultRoom,
       isAlive: true,
       status: 'Active',
