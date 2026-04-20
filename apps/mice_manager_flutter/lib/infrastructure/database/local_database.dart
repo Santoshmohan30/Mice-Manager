@@ -5,7 +5,7 @@ class LocalDatabase {
   LocalDatabase();
 
   static const _databaseName = 'mice_manager.db';
-  static const _databaseVersion = 8;
+  static const _databaseVersion = 11;
 
   Database? _database;
 
@@ -58,6 +58,29 @@ class LocalDatabase {
           await db.execute('ALTER TABLE mice ADD COLUMN row_number TEXT');
           await db.execute('ALTER TABLE mice ADD COLUMN location_space TEXT');
         }
+        if (oldVersion < 9) {
+          await db.execute(
+            'ALTER TABLE mice ADD COLUMN has_cranial_window INTEGER NOT NULL DEFAULT 0',
+          );
+          await db.execute(
+            'ALTER TABLE mice ADD COLUMN is_implanted INTEGER NOT NULL DEFAULT 0',
+          );
+          await db.execute(
+            'ALTER TABLE mice ADD COLUMN has_green_lens INTEGER NOT NULL DEFAULT 0',
+          );
+        }
+        if (oldVersion < 10) {
+          await db.execute('''
+            UPDATE mice
+            SET row_number = rack_location
+            WHERE (row_number IS NULL OR TRIM(row_number) = '')
+              AND rack_location IS NOT NULL
+              AND TRIM(rack_location) <> ''
+          ''');
+        }
+        if (oldVersion < 11) {
+          await _createMouseArchiveSnapshotsTable(db);
+        }
       },
     );
   }
@@ -76,6 +99,9 @@ class LocalDatabase {
         row_number TEXT,
         location_space TEXT,
         rack_location TEXT,
+        has_cranial_window INTEGER NOT NULL DEFAULT 0,
+        is_implanted INTEGER NOT NULL DEFAULT 0,
+        has_green_lens INTEGER NOT NULL DEFAULT 0,
         room TEXT,
         is_alive INTEGER NOT NULL,
         status TEXT NOT NULL,
@@ -96,6 +122,7 @@ class LocalDatabase {
     await _createFoodRestrictionExperimentsTable(db);
     await _createFoodRestrictionMiceTable(db);
     await _createFoodRestrictionEntriesTable(db);
+    await _createMouseArchiveSnapshotsTable(db);
   }
 
   Future<void> _createBreedingTable(Database db) async {
@@ -249,6 +276,23 @@ class LocalDatabase {
     await db.execute('''
       CREATE UNIQUE INDEX IF NOT EXISTS idx_food_restriction_mouse_date
       ON food_restriction_entries (experiment_mouse_id, entry_date)
+    ''');
+  }
+
+  Future<void> _createMouseArchiveSnapshotsTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS mouse_archive_snapshots (
+        id TEXT PRIMARY KEY,
+        source_mouse_id TEXT NOT NULL,
+        archived_at TEXT NOT NULL,
+        archive_reason TEXT NOT NULL,
+        strain TEXT NOT NULL,
+        cage_number TEXT NOT NULL,
+        snapshot_json TEXT NOT NULL,
+        archived_by TEXT,
+        restored_at TEXT,
+        restored_by TEXT
+      )
     ''');
   }
 }

@@ -8,15 +8,56 @@
   </div>
 </div>
 
+<form method="get" class="panel" style="margin-bottom: 1rem;">
+  <div class="form-grid compact-grid">
+    <div>
+      <label for="username">User</label>
+      <input id="username" name="username" type="text" value="{{ filters.username }}" placeholder="admin">
+    </div>
+    <div>
+      <label for="action">Action</label>
+      <input id="action" name="action" type="text" value="{{ filters.action }}" placeholder="login_failed">
+    </div>
+    <div>
+      <label for="entity_type">Entity</label>
+      <input id="entity_type" name="entity_type" type="text" value="{{ filters.entity_type }}" placeholder="mouse">
+    </div>
+    <div>
+      <label for="level">Level</label>
+      <select id="level" name="level">
+        <option value="">All levels</option>
+        {% for value in levels %}
+        <option value="{{ value }}" {% if filters.level == value %}selected{% endif %}>{{ value }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="date_from">From</label>
+      <input id="date_from" name="date_from" type="date" value="{{ filters.date_from }}">
+    </div>
+    <div>
+      <label for="date_to">To</label>
+      <input id="date_to" name="date_to" type="date" value="{{ filters.date_to }}">
+    </div>
+  </div>
+  <div class="form-actions">
+    <button type="submit" class="button">Apply Filters</button>
+    <a class="button button-muted" href="{{ url_for('audit_log') }}">Clear</a>
+  </div>
+</form>
+
 <div class="table-wrap">
   <table>
     <thead>
       <tr>
         <th>Time</th>
+        <th>Level</th>
         <th>User</th>
         <th>Action</th>
         <th>Entity</th>
         <th>ID</th>
+        <th>Request</th>
+        <th>Route</th>
         <th>Details</th>
       </tr>
     </thead>
@@ -24,15 +65,24 @@
       {% for entry in entries %}
       <tr>
         <td>{{ entry.created_at }}</td>
+        <td>{{ entry.level or "INFO" }}</td>
         <td>{{ entry.username }}</td>
         <td>{{ entry.action }}</td>
         <td>{{ entry.entity_type }}</td>
         <td>{{ entry.entity_id }}</td>
+        <td>{{ entry.request_id or "—" }}</td>
+        <td>
+          {% if entry.method or entry.path %}
+          {{ entry.method or "" }} {{ entry.path or "" }}
+          {% else %}
+          —
+          {% endif %}
+        </td>
         <td>{{ entry.details or "—" }}</td>
       </tr>
       {% else %}
       <tr>
-        <td colspan="6" class="muted">No audit entries yet.</td>
+        <td colspan="9" class="muted">No audit entries yet.</td>
       </tr>
       {% endfor %}
     </tbody>

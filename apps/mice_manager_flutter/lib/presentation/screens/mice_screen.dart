@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/constants/app_constants.dart';
 import '../../domain/models/housing_type.dart';
 import '../../domain/models/mouse.dart';
+import '../../domain/models/mouse_archive_snapshot.dart';
 import 'bulk_mouse_replicate_sheet.dart';
 import '../state/mice_controller.dart';
 
@@ -19,14 +20,28 @@ class MiceScreen extends StatefulWidget {
 }
 
 class _MiceScreenState extends State<MiceScreen> {
-  bool _showAdvancedSearch = false;
+  late final TextEditingController _searchController;
+  bool _searchPanelVisible = true;
+  bool _recoveryPanelVisible = false;
 
-  bool get _hasAdvancedFilters =>
-      widget.controller.strainFilter != 'All strains' ||
-      widget.controller.genderFilter != 'All genders' ||
-      widget.controller.genotypeFilter != 'All genotypes' ||
-      widget.controller.ageFilter != MouseAgeFilter.all ||
-      widget.controller.filter != HousingFilter.all;
+  @override
+  void initState() {
+    super.initState();
+    _searchController =
+        TextEditingController(text: widget.controller.cageSearch)
+          ..addListener(() {
+            final value = _searchController.text;
+            if (value != widget.controller.cageSearch) {
+              widget.controller.setCageSearch(value);
+            }
+          });
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -39,6 +54,7 @@ class _MiceScreenState extends State<MiceScreen> {
 
         final controller = widget.controller;
         final mice = controller.mice;
+        final recoveryItems = controller.activeArchiveSnapshots;
         return Scaffold(
           body: Column(
             children: [
@@ -72,231 +88,334 @@ class _MiceScreenState extends State<MiceScreen> {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextFormField(
-                            key: ValueKey(controller.cageSearch),
-                            initialValue: controller.cageSearch,
-                            textCapitalization: TextCapitalization.characters,
-                            decoration: InputDecoration(
-                              labelText: 'Search mice',
-                              hintText: 'CC number, strain, rack, genotype',
-                              isDense: true,
-                              suffixIcon: controller.cageSearch.isEmpty
-                                  ? null
-                                  : IconButton(
-                                      onPressed: () {
-                                        controller.setCageSearch('');
-                                      },
-                                      icon: const Icon(Icons.clear),
-                                    ),
+                    Card(
+                      margin: EdgeInsets.zero,
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Text(
+                                  'Search',
+                                  style:
+                                      Theme.of(context).textTheme.titleMedium,
+                                ),
+                                const Spacer(),
+                                IconButton(
+                                  tooltip: _searchPanelVisible
+                                      ? 'Minimize search'
+                                      : 'Show search',
+                                  onPressed: () {
+                                    setState(() {
+                                      _searchPanelVisible =
+                                          !_searchPanelVisible;
+                                    });
+                                  },
+                                  icon: Icon(
+                                    _searchPanelVisible
+                                        ? Icons.unfold_less
+                                        : Icons.unfold_more,
+                                  ),
+                                ),
+                              ],
                             ),
-                            onChanged: controller.setCageSearch,
-                          ),
+                            AnimatedCrossFade(
+                              duration: const Duration(milliseconds: 180),
+                              crossFadeState: _searchPanelVisible
+                                  ? CrossFadeState.showFirst
+                                  : CrossFadeState.showSecond,
+                              firstChild: Column(
+                                children: [
+                                  TextFormField(
+                                    controller: _searchController,
+                                    keyboardType: TextInputType.number,
+                                    decoration: InputDecoration(
+                                      labelText: 'Find by CC number',
+                                      hintText: '001234',
+                                      prefixText: 'CC',
+                                      isDense: true,
+                                      suffixIcon: controller.cageSearch.isEmpty
+                                          ? null
+                                          : IconButton(
+                                              onPressed: () {
+                                                _searchController.clear();
+                                                controller.setCageSearch('');
+                                              },
+                                              icon: const Icon(Icons.clear),
+                                            ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  SegmentedButton<HousingFilter>(
+                                    segments: const [
+                                      ButtonSegment(
+                                        value: HousingFilter.all,
+                                        label: Text('All'),
+                                      ),
+                                      ButtonSegment(
+                                        value: HousingFilter.laf,
+                                        label: Text('LAF'),
+                                      ),
+                                      ButtonSegment(
+                                        value: HousingFilter.lab,
+                                        label: Text('LAB'),
+                                      ),
+                                    ],
+                                    selected: {controller.filter},
+                                    onSelectionChanged: (selection) {
+                                      controller.setFilter(selection.first);
+                                    },
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: DropdownButtonFormField<String>(
+                                          initialValue: controller.strainFilter,
+                                          isExpanded: true,
+                                          decoration: const InputDecoration(
+                                            labelText: 'Strain',
+                                            isDense: true,
+                                          ),
+                                          items: controller.availableStrains
+                                              .map(
+                                                (value) => DropdownMenuItem(
+                                                  value: value,
+                                                  child: Text(
+                                                    value,
+                                                    maxLines: 1,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                  ),
+                                                ),
+                                              )
+                                              .toList(),
+                                          selectedItemBuilder: (context) {
+                                            return controller.availableStrains
+                                                .map(
+                                                  (value) => Align(
+                                                    alignment:
+                                                        Alignment.centerLeft,
+                                                    child: Text(
+                                                      value,
+                                                      maxLines: 1,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                    ),
+                                                  ),
+                                                )
+                                                .toList();
+                                          },
+                                          onChanged: (value) {
+                                            if (value != null) {
+                                              controller.setStrainFilter(value);
+                                            }
+                                          },
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: DropdownButtonFormField<String>(
+                                          initialValue: controller.genderFilter,
+                                          decoration: const InputDecoration(
+                                            labelText: 'Gender',
+                                            isDense: true,
+                                          ),
+                                          items: controller.availableGenders
+                                              .map(
+                                                (value) => DropdownMenuItem(
+                                                  value: value,
+                                                  child: Text(value),
+                                                ),
+                                              )
+                                              .toList(),
+                                          onChanged: (value) {
+                                            if (value != null) {
+                                              controller.setGenderFilter(value);
+                                            }
+                                          },
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: DropdownButtonFormField<String>(
+                                          initialValue:
+                                              controller.genotypeFilter,
+                                          decoration: const InputDecoration(
+                                            labelText: 'Genotype',
+                                            isDense: true,
+                                          ),
+                                          items: controller.availableGenotypes
+                                              .map(
+                                                (value) => DropdownMenuItem(
+                                                  value: value,
+                                                  child: Text(value),
+                                                ),
+                                              )
+                                              .toList(),
+                                          onChanged: (value) {
+                                            if (value != null) {
+                                              controller
+                                                  .setGenotypeFilter(value);
+                                            }
+                                          },
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: DropdownButtonFormField<
+                                            MouseAgeFilter>(
+                                          initialValue: controller.ageFilter,
+                                          decoration: const InputDecoration(
+                                            labelText: 'Age',
+                                            isDense: true,
+                                          ),
+                                          items: MouseAgeFilter.values
+                                              .map(
+                                                (value) => DropdownMenuItem(
+                                                  value: value,
+                                                  child: Text(value.label),
+                                                ),
+                                              )
+                                              .toList(),
+                                          onChanged: (value) {
+                                            if (value != null) {
+                                              controller.setAgeFilter(value);
+                                            }
+                                          },
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: TextButton.icon(
+                                      onPressed: () {
+                                        _searchController.clear();
+                                        controller
+                                          ..setFilter(HousingFilter.all)
+                                          ..setStrainFilter('All strains')
+                                          ..setGenderFilter('All genders')
+                                          ..setGenotypeFilter('All genotypes')
+                                          ..setAgeFilter(MouseAgeFilter.all)
+                                          ..setCageSearch('');
+                                      },
+                                      icon: const Icon(Icons.restart_alt),
+                                      label: const Text('Reset filters'),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              secondChild: const SizedBox.shrink(),
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 12),
-                        IconButton.filledTonal(
-                          onPressed: () {
-                            setState(
-                              () => _showAdvancedSearch = !_showAdvancedSearch,
-                            );
-                          },
-                          icon: Icon(
-                            _showAdvancedSearch
-                                ? Icons.expand_less
-                                : Icons.tune,
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
                     const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
+                    Row(
                       children: [
                         Chip(
                           label: Text('${controller.currentResultsCount} mice'),
                         ),
-                        if (controller.selectedStrainTotal != null)
-                          Chip(
-                            label: Text(
-                              '${controller.strainFilter}: ${controller.selectedStrainTotal}',
-                            ),
-                          ),
-                        if (_hasAdvancedFilters)
-                          const Chip(label: Text('Advanced filters active')),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    AnimatedCrossFade(
-                      duration: const Duration(milliseconds: 180),
-                      crossFadeState: _showAdvancedSearch || _hasAdvancedFilters
-                          ? CrossFadeState.showFirst
-                          : CrossFadeState.showSecond,
-                      firstChild: Column(
-                        children: [
-                          SegmentedButton<HousingFilter>(
-                            segments: const [
-                              ButtonSegment(
-                                value: HousingFilter.all,
-                                label: Text('All'),
+                        if (controller.selectedStrainTotal != null) ...[
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Chip(
+                              label: Text(
+                                '${controller.strainFilter}: ${controller.selectedStrainTotal}',
+                                overflow: TextOverflow.ellipsis,
                               ),
-                              ButtonSegment(
-                                value: HousingFilter.laf,
-                                label: Text('LAF'),
-                              ),
-                              ButtonSegment(
-                                value: HousingFilter.lab,
-                                label: Text('LAB'),
-                              ),
-                            ],
-                            selected: {controller.filter},
-                            onSelectionChanged: (selection) {
-                              controller.setFilter(selection.first);
-                            },
-                          ),
-                          const SizedBox(height: 12),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: DropdownButtonFormField<String>(
-                                  initialValue: controller.strainFilter,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Strain',
-                                    isDense: true,
-                                  ),
-                                  items: controller.availableStrains
-                                      .map(
-                                        (value) => DropdownMenuItem(
-                                          value: value,
-                                          child: Text(value),
-                                        ),
-                                      )
-                                      .toList(),
-                                  onChanged: (value) {
-                                    if (value != null) {
-                                      controller.setStrainFilter(value);
-                                    }
-                                  },
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: DropdownButtonFormField<String>(
-                                  initialValue: controller.genderFilter,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Gender',
-                                    isDense: true,
-                                  ),
-                                  items: controller.availableGenders
-                                      .map(
-                                        (value) => DropdownMenuItem(
-                                          value: value,
-                                          child: Text(value),
-                                        ),
-                                      )
-                                      .toList(),
-                                  onChanged: (value) {
-                                    if (value != null) {
-                                      controller.setGenderFilter(value);
-                                    }
-                                  },
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: DropdownButtonFormField<String>(
-                                  initialValue: controller.genotypeFilter,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Genotype',
-                                    isDense: true,
-                                  ),
-                                  items: controller.availableGenotypes
-                                      .map(
-                                        (value) => DropdownMenuItem(
-                                          value: value,
-                                          child: Text(value),
-                                        ),
-                                      )
-                                      .toList(),
-                                  onChanged: (value) {
-                                    if (value != null) {
-                                      controller.setGenotypeFilter(value);
-                                    }
-                                  },
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: DropdownButtonFormField<MouseAgeFilter>(
-                                  initialValue: controller.ageFilter,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Age',
-                                    isDense: true,
-                                  ),
-                                  items: MouseAgeFilter.values
-                                      .map(
-                                        (value) => DropdownMenuItem(
-                                          value: value,
-                                          child: Text(value.label),
-                                        ),
-                                      )
-                                      .toList(),
-                                  onChanged: (value) {
-                                    if (value != null) {
-                                      controller.setAgeFilter(value);
-                                    }
-                                  },
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          Align(
-                            alignment: Alignment.centerLeft,
-                            child: TextButton.icon(
-                              onPressed: () {
-                                controller
-                                  ..setFilter(HousingFilter.all)
-                                  ..setStrainFilter('All strains')
-                                  ..setGenderFilter('All genders')
-                                  ..setGenotypeFilter('All genotypes')
-                                  ..setAgeFilter(MouseAgeFilter.all)
-                                  ..setCageSearch('');
-                              },
-                              icon: const Icon(Icons.restart_alt),
-                              label: const Text('Reset filters'),
                             ),
                           ),
                         ],
-                      ),
-                      secondChild: const SizedBox.shrink(),
+                      ],
                     ),
-                    if (controller.strainTotals.isNotEmpty) ...[
+                    if (recoveryItems.isNotEmpty) ...[
                       const SizedBox(height: 12),
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          children: controller.strainTotals
-                              .take(8)
-                              .map(
-                                (entry) => Padding(
-                                  padding: const EdgeInsets.only(right: 8),
-                                  child: ActionChip(
-                                    label: Text('${entry.key} (${entry.value})'),
-                                    onPressed: () {
-                                      controller.setStrainFilter(entry.key);
-                                      setState(() => _showAdvancedSearch = true);
-                                    },
+                      Card(
+                        margin: EdgeInsets.zero,
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      'Archived Mouse Recovery',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleMedium,
+                                    ),
                                   ),
+                                  Chip(
+                                    label: Text(
+                                      '${recoveryItems.length} pending',
+                                    ),
+                                  ),
+                                  IconButton(
+                                    tooltip: _recoveryPanelVisible
+                                        ? 'Hide recovery'
+                                        : 'Show recovery',
+                                    onPressed: () {
+                                      setState(() {
+                                        _recoveryPanelVisible =
+                                            !_recoveryPanelVisible;
+                                      });
+                                    },
+                                    icon: Icon(
+                                      _recoveryPanelVisible
+                                          ? Icons.unfold_less
+                                          : Icons.unfold_more,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              AnimatedCrossFade(
+                                duration: const Duration(milliseconds: 180),
+                                crossFadeState: _recoveryPanelVisible
+                                    ? CrossFadeState.showFirst
+                                    : CrossFadeState.showSecond,
+                                firstChild: Column(
+                                  children: recoveryItems
+                                      .take(5)
+                                      .map(
+                                        (snapshot) => _ArchiveRecoveryTile(
+                                          snapshot: snapshot,
+                                          onRestore: () async {
+                                            await controller.restoreSnapshot(
+                                              snapshot,
+                                            );
+                                            if (!context.mounted) {
+                                              return;
+                                            }
+                                            ScaffoldMessenger.of(context)
+                                              ..hideCurrentSnackBar()
+                                              ..showSnackBar(
+                                                SnackBar(
+                                                  content: Text(
+                                                    'Restored ${snapshot.strain} in cage ${snapshot.cageNumber}.',
+                                                  ),
+                                                ),
+                                              );
+                                          },
+                                        ),
+                                      )
+                                      .toList(),
                                 ),
-                              )
-                              .toList(),
+                                secondChild: const SizedBox.shrink(),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ],
@@ -332,9 +451,9 @@ class _MiceScreenState extends State<MiceScreen> {
                               final confirmed = await showDialog<bool>(
                                 context: context,
                                 builder: (context) => AlertDialog(
-                                  title: const Text('Delete mouse'),
+                                  title: const Text('Archive mouse'),
                                   content: Text(
-                                    'Delete ${mouse.strain} in cage ${mouse.cageNumber}?',
+                                    'Archive ${mouse.strain} in cage ${mouse.cageNumber}? You can restore it later from recovery.',
                                   ),
                                   actions: [
                                     TextButton(
@@ -345,13 +464,25 @@ class _MiceScreenState extends State<MiceScreen> {
                                     FilledButton(
                                       onPressed: () =>
                                           Navigator.of(context).pop(true),
-                                      child: const Text('Delete'),
+                                      child: const Text('Archive'),
                                     ),
                                   ],
                                 ),
                               );
                               if (confirmed == true) {
                                 await controller.deleteMouse(mouse.id);
+                                if (!context.mounted) {
+                                  return;
+                                }
+                                ScaffoldMessenger.of(context)
+                                  ..hideCurrentSnackBar()
+                                  ..showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        'Archived ${mouse.strain}. Restore is available in the recovery section.',
+                                      ),
+                                    ),
+                                  );
                               }
                             },
                           );
@@ -365,8 +496,7 @@ class _MiceScreenState extends State<MiceScreen> {
               await showModalBottomSheet<void>(
                 context: context,
                 isScrollControlled: true,
-                builder: (context) =>
-                    _MouseEditorSheet(controller: controller),
+                builder: (context) => _MouseEditorSheet(controller: controller),
               );
             },
             icon: const Icon(Icons.add),
@@ -399,6 +529,34 @@ class _SummaryCard extends StatelessWidget {
             Text(label),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ArchiveRecoveryTile extends StatelessWidget {
+  const _ArchiveRecoveryTile({
+    required this.snapshot,
+    required this.onRestore,
+  });
+
+  final MouseArchiveSnapshot snapshot;
+  final Future<void> Function() onRestore;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      title: Text(
+        snapshot.strain.isEmpty ? snapshot.cageNumber : snapshot.strain,
+      ),
+      subtitle: Text(
+        'Cage ${snapshot.cageNumber} • Archived ${_formatDateTime(snapshot.archivedAt)}',
+      ),
+      trailing: FilledButton.tonalIcon(
+        onPressed: onRestore,
+        icon: const Icon(Icons.restore),
+        label: const Text('Restore'),
       ),
     );
   }
@@ -832,7 +990,8 @@ class _MouseEditorSheetState extends State<_MouseEditorSheet> {
           gender: _selectedGender,
           genotype: _selectedGenotype,
           dateOfBirth: dob,
-          cageNumber: AppConstants.normalizeCageCardNumber(_cageController.text),
+          cageNumber:
+              AppConstants.normalizeCageCardNumber(_cageController.text),
           rackNumber: _rackNumberController.text,
           rowNumber: _rowController.text,
           rackLocation: null,
@@ -886,8 +1045,9 @@ class _MouseEditorSheetState extends State<_MouseEditorSheet> {
       room: AppConstants.defaultRoom,
       isAlive: true,
       status: 'Active',
-      notes:
-          _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
+      notes: _notesController.text.trim().isEmpty
+          ? null
+          : _notesController.text.trim(),
       createdAt: DateTime.now(),
       updatedAt: DateTime.now(),
     );
@@ -938,4 +1098,12 @@ class _MouseEditorSheetState extends State<_MouseEditorSheet> {
 
 String _formatDate(DateTime value) {
   return '${value.month.toString().padLeft(2, '0')}/${value.day.toString().padLeft(2, '0')}/${value.year}';
+}
+
+String _formatDateTime(DateTime value) {
+  final month = value.month.toString().padLeft(2, '0');
+  final day = value.day.toString().padLeft(2, '0');
+  final hour = value.hour.toString().padLeft(2, '0');
+  final minute = value.minute.toString().padLeft(2, '0');
+  return '$month/$day/${value.year} $hour:$minute';
 }

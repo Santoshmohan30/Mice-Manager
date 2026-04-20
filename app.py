@@ -9,17 +9,21 @@ import secrets
 import sqlite3
 import subprocess
 import tempfile
+import time
+import uuid
 from datetime import date, datetime, timedelta
 from functools import wraps
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from types import SimpleNamespace
 
-from sqlalchemy import inspect, or_
+from sqlalchemy import event, inspect, or_
 from flask import (
     Flask,
     Response,
     flash,
     g,
+    has_request_context,
     jsonify,
     redirect,
     render_template,
@@ -32,6 +36,7 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from markupsafe import Markup
 from PIL import Image, ImageFilter, ImageOps, ImageStat
 from sqlalchemy.exc import OperationalError
+from werkzeug.exceptions import HTTPException
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from config import Config
@@ -48,11 +53,32 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
 
+
+def configure_rotating_logs():
+    logs_dir = Path(app.instance_path) / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    log_path = logs_dir / "mice_manager.log"
+
+    if any(
+        isinstance(handler, RotatingFileHandler) and getattr(handler, "baseFilename", None) == str(log_path)
+        for handler in app.logger.handlers
+    ):
+        return
+
+    file_handler = RotatingFileHandler(log_path, maxBytes=1_000_000, backupCount=5)
+    file_handler.setLevel(getattr(logging, app.config["LOG_LEVEL"], logging.INFO))
+    file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+    app.logger.addHandler(file_handler)
+    app.logger.setLevel(getattr(logging, app.config["LOG_LEVEL"], logging.INFO))
+
+
+configure_rotating_logs()
+
 db.init_app(app)
 migrate.init_app(app, db)
 app.register_blueprint(health_blueprint)
 
-from models import AuditLog, Breeding, CalendarEvent, CageTransfer, Mouse, Procedure, Pup, User, Weight
+from models import AuditLog, Breeding, CalendarEvent, CageTransfer, Mouse, MouseArchiveSnapshot, Procedure, Pup, User, Weight
 
 DEFAULT_ROOM = app.config["DEFAULT_ROOM"]
 DEFAULT_PROTOCOL_NUMBER = app.config["DEFAULT_PROTOCOL_NUMBER"]
@@ -288,18 +314,182 @@ def active_mouse_query():
     return Mouse.query.filter(Mouse.is_active.is_(True))
 
 
+def table_exists(table_name):
+    return table_name in inspect(db.engine).get_table_names()
+
+
+def request_username():
+    if has_request_context() and getattr(g, "user", None):
+        return g.user.username
+    return "system"
+
+
+def request_remote_addr():
+    if not has_request_context():
+        return None
+    return request.headers.get("X-Forwarded-For", request.remote_addr)
+
+
 def log_action(action, entity_type, entity_id, details=""):
-    username = g.user.username if getattr(g, "user", None) else "system"
+    username = request_username()
     db.session.add(
         AuditLog(
             created_at=datetime.now().isoformat(timespec="seconds"),
             username=username,
+            level="INFO",
             action=action,
             entity_type=entity_type,
             entity_id=str(entity_id),
+            request_id=getattr(g, "request_id", None),
+            method=request.method if has_request_context() else None,
+            path=request.path if has_request_context() else None,
+            remote_addr=request_remote_addr(),
             details=details or "",
         )
     )
+
+
+def log_event(level, action, entity_type, entity_id, details="", status_code=None, username=None):
+    resolved_username = username or request_username()
+    db.session.add(
+        AuditLog(
+            created_at=datetime.now().isoformat(timespec="seconds"),
+            username=resolved_username,
+            level=level.upper(),
+            action=action,
+            entity_type=entity_type,
+            entity_id=str(entity_id),
+            request_id=getattr(g, "request_id", None),
+            method=request.method if has_request_context() else None,
+            path=request.path if has_request_context() else None,
+            status_code=status_code,
+            remote_addr=request_remote_addr(),
+            details=details or "",
+        )
+    )
+
+
+def structured_request_message(status_code, duration_ms):
+    username = g.user.username if getattr(g, "user", None) else "anonymous"
+    return (
+        "request_id=%s method=%s path=%s status=%s duration_ms=%.2f user=%s ip=%s"
+        % (
+            getattr(g, "request_id", "-"),
+            request.method,
+            request.path,
+            status_code,
+            duration_ms,
+            username,
+            request.headers.get("X-Forwarded-For", request.remote_addr) or "-",
+        )
+    )
+
+
+def safe_string(value):
+    text = "" if value is None else str(value)
+    text = " ".join(text.split())
+    return text if len(text) <= 60 else f"{text[:57]}..."
+
+
+def model_entity_type(target):
+    return getattr(target, "__tablename__", target.__class__.__name__.lower())
+
+
+def model_entity_id(target):
+    value = getattr(target, "id", None)
+    return "unknown" if value is None else str(value)
+
+
+def model_snapshot(target):
+    parts = []
+    for field in ("id", "mouse_id", "strain", "cage", "type", "date", "pair_date", "weight"):
+        if hasattr(target, field):
+            value = getattr(target, field)
+            if value not in (None, ""):
+                parts.append(f"{field}={safe_string(value)}")
+    return ", ".join(parts[:5]) or target.__class__.__name__
+
+
+def model_change_summary(target):
+    state = inspect(target)
+    changes = []
+    for attribute in state.mapper.column_attrs:
+        history = state.attrs[attribute.key].history
+        if not history.has_changes():
+            continue
+        old_value = history.deleted[0] if history.deleted else None
+        new_value = history.added[0] if history.added else getattr(target, attribute.key, None)
+        if old_value == new_value:
+            continue
+        changes.append(f"{attribute.key}: {safe_string(old_value)} -> {safe_string(new_value)}")
+    if not changes:
+        return "Record updated"
+    if len(changes) > 6:
+        shown = "; ".join(changes[:6])
+        return f"{shown}; +{len(changes) - 6} more change(s)"
+    return "; ".join(changes)
+
+
+def insert_audit_log(connection, level, action, entity_type, entity_id, details="", status_code=None, username=None):
+    connection.execute(
+        AuditLog.__table__.insert().values(
+            created_at=datetime.now().isoformat(timespec="seconds"),
+            username=username or request_username(),
+            level=level.upper(),
+            action=action,
+            entity_type=entity_type,
+            entity_id=str(entity_id),
+            request_id=getattr(g, "request_id", None) if has_request_context() else None,
+            method=request.method if has_request_context() else None,
+            path=request.path if has_request_context() else None,
+            status_code=status_code,
+            remote_addr=request_remote_addr(),
+            details=details or "",
+        )
+    )
+
+
+def audit_model_insert(_mapper, connection, target):
+    insert_audit_log(
+        connection,
+        "INFO",
+        "model_create",
+        model_entity_type(target),
+        model_entity_id(target),
+        details=model_snapshot(target),
+    )
+
+
+def audit_model_update(_mapper, connection, target):
+    insert_audit_log(
+        connection,
+        "INFO",
+        "model_update",
+        model_entity_type(target),
+        model_entity_id(target),
+        details=model_change_summary(target),
+    )
+
+
+def audit_model_delete(_mapper, connection, target):
+    insert_audit_log(
+        connection,
+        "WARNING",
+        "model_delete",
+        model_entity_type(target),
+        model_entity_id(target),
+        details=model_snapshot(target),
+    )
+
+
+def register_model_audit_hooks():
+    for model in (Mouse, Procedure, Breeding, Weight):
+        event.listen(model, "after_insert", audit_model_insert)
+        event.listen(model, "after_update", audit_model_update)
+        event.listen(model, "after_delete", audit_model_delete)
+
+
+register_model_audit_hooks()
 
 
 def table_columns(table_name):
@@ -329,9 +519,37 @@ def ensure_user_schema():
             safe_add_column(connection, 'ALTER TABLE "user" ADD COLUMN last_login_at VARCHAR(30)')
 
 
+def ensure_audit_schema():
+    def safe_add_column(connection, statement):
+        try:
+            connection.exec_driver_sql(statement)
+        except OperationalError as error:
+            message = str(error).lower()
+            if "duplicate column name" not in message and "already exists" not in message and "duplicate_column" not in message:
+                raise
+
+    with db.engine.begin() as connection:
+        columns = table_columns("audit_log")
+        if "level" not in columns:
+            safe_add_column(connection, 'ALTER TABLE audit_log ADD COLUMN level VARCHAR(20)')
+            connection.exec_driver_sql("UPDATE audit_log SET level = 'INFO' WHERE level IS NULL OR TRIM(level) = ''")
+        if "request_id" not in columns:
+            safe_add_column(connection, 'ALTER TABLE audit_log ADD COLUMN request_id VARCHAR(40)')
+        if "method" not in columns:
+            safe_add_column(connection, 'ALTER TABLE audit_log ADD COLUMN method VARCHAR(10)')
+        if "path" not in columns:
+            safe_add_column(connection, 'ALTER TABLE audit_log ADD COLUMN path VARCHAR(255)')
+        if "status_code" not in columns:
+            safe_add_column(connection, 'ALTER TABLE audit_log ADD COLUMN status_code INTEGER')
+        if "remote_addr" not in columns:
+            safe_add_column(connection, 'ALTER TABLE audit_log ADD COLUMN remote_addr VARCHAR(64)')
+
+
 @app.before_request
 def load_current_user():
     session.permanent = True
+    g.request_id = uuid.uuid4().hex[:12]
+    g.request_started_at = time.perf_counter()
     g.user = current_user()
 
 
@@ -360,10 +578,13 @@ def validate_csrf():
 
 @app.after_request
 def add_security_headers(response):
+    duration_ms = (time.perf_counter() - getattr(g, "request_started_at", time.perf_counter())) * 1000
+    app.logger.info(structured_request_message(response.status_code, duration_ms))
     response.headers["X-Frame-Options"] = "SAMEORIGIN"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Request-ID"] = getattr(g, "request_id", "")
     return response
 
 
@@ -476,6 +697,53 @@ def serialize_mouse(mouse):
         "is_active": bool(mouse.is_active),
         "deleted_at": mouse.deleted_at or "",
     }
+
+
+def serialize_mouse_snapshot(mouse):
+    return {
+        "id": mouse.id,
+        "strain": mouse.strain,
+        "group_type": mouse.group_type or "",
+        "gender": mouse.gender,
+        "genotype": mouse.genotype,
+        "dob": mouse.dob,
+        "cage": mouse.cage,
+        "rack_location": mouse.rack_location or "",
+        "notes": mouse.notes or "",
+        "training": bool(mouse.training),
+        "project": mouse.project or "",
+        "owner_pi": mouse.owner_pi or "",
+        "protocol_number": mouse.protocol_number or "",
+        "animal_count": mouse.animal_count,
+        "received_date": mouse.received_date or "",
+        "vendor": mouse.vendor or "",
+        "age": mouse.age or "",
+        "weight": mouse.weight or "",
+        "species": mouse.species or "",
+        "room": mouse.room or "",
+        "requisition_number": mouse.requisition_number or "",
+        "cost_center": mouse.cost_center or "",
+        "is_alive": bool(mouse.is_alive),
+        "status": mouse.status or "active",
+        "date_of_death": mouse.date_of_death or "",
+        "death_reason": mouse.death_reason or "",
+        "is_active": bool(mouse.is_active),
+        "deleted_at": mouse.deleted_at or "",
+    }
+
+
+def capture_mouse_archive_snapshot(mouse, reason):
+    db.session.add(
+        MouseArchiveSnapshot(
+            source_mouse_id=mouse.id,
+            archived_at=datetime.now().isoformat(timespec="seconds"),
+            archived_by=request_username(),
+            archive_reason=reason,
+            strain=mouse.strain,
+            cage=mouse.cage,
+            snapshot_json=json.dumps(serialize_mouse_snapshot(mouse)),
+        )
+    )
 
 
 def serialize_breeding(record):
@@ -994,6 +1262,32 @@ def ensure_weight_schema():
             safe_add_column(connection, "notes", "ALTER TABLE weight ADD COLUMN notes TEXT")
 
 
+def ensure_mouse_archive_snapshot_schema():
+    def safe_add_column(connection, statement):
+        try:
+            connection.exec_driver_sql(statement)
+        except OperationalError as error:
+            message = str(error).lower()
+            if "duplicate column name" not in message and "already exists" not in message and "duplicate_column" not in message:
+                raise
+
+    if not table_exists("mouse_archive_snapshot"):
+        return
+
+    with db.engine.begin() as connection:
+        columns = table_columns("mouse_archive_snapshot")
+        if "archive_reason" not in columns:
+            safe_add_column(connection, "ALTER TABLE mouse_archive_snapshot ADD COLUMN archive_reason VARCHAR(120)")
+        if "strain" not in columns:
+            safe_add_column(connection, "ALTER TABLE mouse_archive_snapshot ADD COLUMN strain VARCHAR(100)")
+        if "cage" not in columns:
+            safe_add_column(connection, "ALTER TABLE mouse_archive_snapshot ADD COLUMN cage VARCHAR(20)")
+        if "restored_at" not in columns:
+            safe_add_column(connection, "ALTER TABLE mouse_archive_snapshot ADD COLUMN restored_at VARCHAR(30)")
+        if "restored_by" not in columns:
+            safe_add_column(connection, "ALTER TABLE mouse_archive_snapshot ADD COLUMN restored_by VARCHAR(50)")
+
+
 def normalize_existing_mouse_data():
     changed = False
     for mouse in Mouse.query.all():
@@ -1030,6 +1324,8 @@ def ensure_default_admin():
     ensure_mouse_schema()
     ensure_weight_schema()
     ensure_user_schema()
+    ensure_audit_schema()
+    ensure_mouse_archive_snapshot_schema()
     if User.query.count() == 0:
         default_password = os.environ.get("DEFAULT_ADMIN_PASSWORD", "ChangeMe123!")
         admin = User(
@@ -1081,6 +1377,20 @@ def login():
 
         if user and login_locked(user):
             lock_until = parse_datetime(user.locked_until)
+            try:
+                log_event(
+                    "WARNING",
+                    "login_locked",
+                    "user",
+                    user.username,
+                    details=f"Blocked login because account is locked until {user.locked_until}",
+                    status_code=423,
+                    username=user.username,
+                )
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+                app.logger.exception("Failed to audit locked login")
             flash(f"Account locked until {lock_until.strftime('%H:%M:%S')} due to repeated failed logins.", "danger")
             return render_template("login.html", default_hint=False, default_admin_name=os.environ.get("DEFAULT_ADMIN_USERNAME", "admin"))
 
@@ -1101,7 +1411,31 @@ def login():
 
         if user:
             register_failed_login(user)
+            log_event(
+                "WARNING",
+                "login_failed",
+                "user",
+                user.username,
+                details="Invalid password for existing user",
+                status_code=401,
+                username=user.username,
+            )
             db.session.commit()
+        else:
+            try:
+                log_event(
+                    "WARNING",
+                    "login_failed",
+                    "user",
+                    username or "unknown",
+                    details="Invalid username submitted",
+                    status_code=401,
+                    username=username or "unknown",
+                )
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+                app.logger.exception("Failed to audit invalid username login")
         flash("Invalid username or password.", "danger")
 
     default_admin_name = os.environ.get("DEFAULT_ADMIN_USERNAME", "admin")
@@ -1213,18 +1547,71 @@ def reset_user_password(user_id):
 @app.route("/audit-log")
 @role_required("admin")
 def audit_log():
-    entries = AuditLog.query.order_by(AuditLog.id.desc()).limit(250).all()
-    return render_template("audit_log.html", entries=entries)
+    username = (request.args.get("username") or "").strip()
+    action = (request.args.get("action") or "").strip()
+    level = (request.args.get("level") or "").strip()
+    entity_type = (request.args.get("entity_type") or "").strip()
+    date_from = (request.args.get("date_from") or "").strip()
+    date_to = (request.args.get("date_to") or "").strip()
+
+    query = AuditLog.query
+    if username:
+        query = query.filter(AuditLog.username.ilike(f"%{username}%"))
+    if action:
+        query = query.filter(AuditLog.action.ilike(f"%{action}%"))
+    if level:
+        query = query.filter(AuditLog.level == level.upper())
+    if entity_type:
+        query = query.filter(AuditLog.entity_type.ilike(f"%{entity_type}%"))
+
+    parsed_from = parse_iso_date(date_from)
+    if parsed_from:
+        query = query.filter(AuditLog.created_at >= f"{parsed_from.isoformat()}T00:00:00")
+
+    parsed_to = parse_iso_date(date_to)
+    if parsed_to:
+        end_of_day = datetime.combine(parsed_to + timedelta(days=1), datetime.min.time()).isoformat(timespec="seconds")
+        query = query.filter(AuditLog.created_at < end_of_day)
+
+    entries = query.order_by(AuditLog.id.desc()).limit(250).all()
+    levels = [row[0] for row in db.session.query(AuditLog.level).distinct().order_by(AuditLog.level).all() if row[0]]
+    return render_template(
+        "audit_log.html",
+        entries=entries,
+        filters={
+            "username": username,
+            "action": action,
+            "level": level,
+            "entity_type": entity_type,
+            "date_from": date_from,
+            "date_to": date_to,
+        },
+        levels=levels,
+    )
 
 
 @app.route("/backups")
 @role_required("admin")
 def backups():
+    archived_snapshots = (
+        MouseArchiveSnapshot.query.order_by(MouseArchiveSnapshot.id.desc()).limit(100).all()
+        if table_exists("mouse_archive_snapshot")
+        else []
+    )
+    archived_mouse_ids = [snapshot.source_mouse_id for snapshot in archived_snapshots]
+    archived_mouse_map = {}
+    if archived_mouse_ids:
+        archived_mouse_map = {
+            mouse.id: mouse
+            for mouse in Mouse.query.filter(Mouse.id.in_(archived_mouse_ids)).all()
+        }
     return render_template(
         "backups.html",
         live_database_path=str(database_file()) if is_sqlite_backend() else "PostgreSQL / external database",
         sqlite_mode=is_sqlite_backend(),
         backups=available_backups(),
+        archived_snapshots=archived_snapshots,
+        archived_mouse_map=archived_mouse_map,
     )
 
 
@@ -1755,6 +2142,7 @@ def archive_scanned_mouse():
         flash("That mouse could not be found or is already archived.", "danger")
         return redirect(url_for("scan_cage_card", scan_mode=scan_mode))
 
+    capture_mouse_archive_snapshot(mouse, "scan_archive")
     mouse.is_active = False
     mouse.deleted_at = datetime.now().isoformat(timespec="seconds")
     log_action("archive", "mouse", mouse.id, f"Archived from scan review in cage {mouse.cage}")
@@ -1836,6 +2224,7 @@ def edit_mouse(id):
 @role_required("admin", "tech")
 def delete_mouse(id):
     mouse = Mouse.query.get_or_404(id)
+    capture_mouse_archive_snapshot(mouse, "manual_archive")
     mouse.is_active = False
     mouse.deleted_at = datetime.now().isoformat(timespec="seconds")
     log_action("archive", "mouse", mouse.id, f"Archived mouse {mouse.strain} in cage {mouse.cage}")
@@ -1850,6 +2239,14 @@ def restore_mouse(id):
     mouse = Mouse.query.get_or_404(id)
     mouse.is_active = True
     mouse.deleted_at = None
+    latest_snapshot = (
+        MouseArchiveSnapshot.query.filter_by(source_mouse_id=mouse.id, restored_at=None)
+        .order_by(MouseArchiveSnapshot.id.desc())
+        .first()
+    )
+    if latest_snapshot:
+        latest_snapshot.restored_at = datetime.now().isoformat(timespec="seconds")
+        latest_snapshot.restored_by = request_username()
     log_action("restore", "mouse", mouse.id, f"Restored mouse {mouse.strain}")
     db.session.commit()
     flash("Mouse restored.", "success")
@@ -2267,6 +2664,8 @@ def export_csv(table):
     else:
         return "Invalid table name", 400
 
+    log_action("export", table, table, f"Downloaded CSV export for {table}")
+    db.session.commit()
     response = Response(output.getvalue(), mimetype="text/csv")
     filename = "mice_by_strain_lab_sheet.csv" if table == "mice" else f"{table}_data.csv"
     response.headers["Content-Disposition"] = f"attachment; filename={filename}"
@@ -2466,6 +2865,7 @@ def api_update_mouse(mouse_id):
 @api_login_required
 def api_archive_mouse(mouse_id):
     mouse = Mouse.query.get_or_404(mouse_id)
+    capture_mouse_archive_snapshot(mouse, "api_archive")
     mouse.is_active = False
     mouse.deleted_at = datetime.now().isoformat(timespec="seconds")
     log_action("archive", "mouse", mouse.id, f"Archived by mobile/API from cage {mouse.cage}")
@@ -2546,6 +2946,36 @@ def api_scan_cage_card_image():
 def api_breeding():
     records = Breeding.query.order_by(Breeding.pair_date.desc()).all()
     return jsonify([serialize_breeding(record) for record in records])
+
+
+@app.errorhandler(Exception)
+def handle_unexpected_exception(error):
+    if isinstance(error, HTTPException):
+        return error
+
+    app.logger.exception(
+        "request_id=%s unhandled_exception path=%s method=%s",
+        getattr(g, "request_id", "-"),
+        request.path,
+        request.method,
+    )
+    try:
+        log_event(
+            "ERROR",
+            "unhandled_exception",
+            "request",
+            getattr(g, "request_id", "unknown"),
+            details=f"{type(error).__name__}: {error}",
+            status_code=500,
+        )
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        app.logger.exception("Failed to write audit log for unhandled exception")
+
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "Internal server error", "request_id": getattr(g, "request_id", None)}), 500
+    return render_template("500.html", request_id=getattr(g, "request_id", None)), 500
 
 
 @app.errorhandler(404)

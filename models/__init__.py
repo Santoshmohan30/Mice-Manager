@@ -5,6 +5,6 @@ from .procedure import Procedure
 from .breeding import Breeding
 from .user import User
 from .calendar import CalendarEvent
-from .breeding import Breeding
 from .pup import Pup
 from .audit_log import AuditLog
+from .mouse_archive_snapshot import MouseArchiveSnapshot

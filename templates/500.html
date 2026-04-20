@@ -1,0 +1,21 @@
+{% extends "layout.html" %}
+{% block title %}Server Error · Mice Manager{% endblock %}
+{% block content %}
+<div class="section-header">
+  <div>
+    <h2>Something Went Wrong</h2>
+    <p class="subtitle">The error was logged automatically so you can trace it later.</p>
+  </div>
+</div>
+
+<div class="card">
+  <p>The request could not be completed right now.</p>
+  {% if request_id %}
+  <p><strong>Request ID:</strong> {{ request_id }}</p>
+  {% endif %}
+  <div class="actions" style="margin-top: 16px;">
+    <a href="{{ url_for('dashboard') }}" class="button">Back To Dashboard</a>
+    <a href="{{ url_for('audit_log') }}" class="button secondary">View Audit Log</a>
+  </div>
+</div>
+{% endblock %}

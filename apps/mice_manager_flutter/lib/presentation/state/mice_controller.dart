@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../../core/constants/app_constants.dart';
 import '../../domain/models/housing_type.dart';
 import '../../domain/models/mouse.dart';
+import '../../domain/models/mouse_archive_snapshot.dart';
 import '../../application/services/mouse_service.dart';
 
 enum HousingFilter {
@@ -91,6 +92,7 @@ class MiceController extends ChangeNotifier {
   final MouseService _mouseService;
 
   List<Mouse> _mice = const [];
+  List<MouseArchiveSnapshot> _archiveSnapshots = const [];
   bool _isLoading = false;
   HousingFilter _filter = HousingFilter.all;
   String _strainFilter = 'All strains';
@@ -100,6 +102,9 @@ class MiceController extends ChangeNotifier {
   String _cageSearch = '';
 
   List<Mouse> get allMice => _mice;
+  List<MouseArchiveSnapshot> get archiveSnapshots => _archiveSnapshots;
+  List<MouseArchiveSnapshot> get activeArchiveSnapshots =>
+      _archiveSnapshots.where((snapshot) => !snapshot.isRestored).toList();
 
   List<Mouse> _filteredMice({bool ignoreStrainFilter = false}) {
     return _mice.where((mouse) {
@@ -109,7 +114,8 @@ class MiceController extends ChangeNotifier {
         HousingFilter.all => true,
       };
       final strainMatches = ignoreStrainFilter ||
-          _strainFilter == 'All strains' || mouse.strain == _strainFilter;
+          _strainFilter == 'All strains' ||
+          mouse.strain == _strainFilter;
       final genderMatches =
           _genderFilter == 'All genders' || mouse.gender == _genderFilter;
       final genotypeMatches = _genotypeFilter == 'All genotypes' ||
@@ -171,6 +177,7 @@ class MiceController extends ChangeNotifier {
     _isLoading = true;
     notifyListeners();
     _mice = await _mouseService.listAll();
+    _archiveSnapshots = await _mouseService.listArchiveSnapshots();
     _isLoading = false;
     notifyListeners();
   }
@@ -244,7 +251,8 @@ class MiceController extends ChangeNotifier {
       genotype: genotype.trim(),
       dateOfBirth: dateOfBirth,
       cageNumber: cageNumber.trim(),
-      rackNumber: rackNumber?.trim().isEmpty ?? true ? null : rackNumber?.trim(),
+      rackNumber:
+          rackNumber?.trim().isEmpty ?? true ? null : rackNumber?.trim(),
       rowNumber: rowNumber?.trim().isEmpty ?? true ? null : rowNumber?.trim(),
       rackLocation:
           rackLocation?.trim().isEmpty ?? true ? null : rackLocation?.trim(),
@@ -288,8 +296,19 @@ class MiceController extends ChangeNotifier {
     await load();
   }
 
-  Future<void> deleteMouse(String mouseId) async {
-    await _mouseService.delete(mouseId);
+  Future<void> deleteMouse(String mouseId, {String? archivedBy}) async {
+    await _mouseService.delete(mouseId, archivedBy: archivedBy);
+    await load();
+  }
+
+  Future<void> restoreSnapshot(
+    MouseArchiveSnapshot snapshot, {
+    String? restoredBy,
+  }) async {
+    await _mouseService.restoreArchiveSnapshot(
+      snapshot,
+      restoredBy: restoredBy,
+    );
     await load();
   }
 

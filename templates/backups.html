@@ -86,4 +86,68 @@
   <p class="muted">No backups yet. Create your first one now.</p>
   {% endif %}
 </section>
+
+<section class="card" style="margin-top: 18px;">
+  <div class="section-header">
+    <div>
+      <h3>Archived Mouse Recovery</h3>
+      <p class="subtitle">Snapshots captured at archive time so admins can review and restore removed colony records safely.</p>
+    </div>
+  </div>
+
+  {% if archived_snapshots %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Archived</th>
+          <th>Mouse ID</th>
+          <th>Strain</th>
+          <th>Cage</th>
+          <th>Reason</th>
+          <th>By</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for snapshot in archived_snapshots %}
+        {% set live_mouse = archived_mouse_map.get(snapshot.source_mouse_id) %}
+        <tr>
+          <td>{{ snapshot.archived_at }}</td>
+          <td>{{ snapshot.source_mouse_id }}</td>
+          <td>{{ snapshot.strain or "—" }}</td>
+          <td>{{ snapshot.cage or "—" }}</td>
+          <td>{{ snapshot.archive_reason or "archive" }}</td>
+          <td>{{ snapshot.archived_by }}</td>
+          <td>
+            {% if snapshot.restored_at %}
+            Restored {{ snapshot.restored_at }}
+            {% elif live_mouse and not live_mouse.is_active %}
+            Archived and restorable
+            {% elif live_mouse and live_mouse.is_active %}
+            Live again
+            {% else %}
+            Source record missing
+            {% endif %}
+          </td>
+          <td>
+            {% if live_mouse and not live_mouse.is_active %}
+            <form method="POST" action="{{ url_for('restore_mouse', id=live_mouse.id) }}" class="inline-form" onsubmit="return confirm('Restore this archived mouse?');">
+              {{ csrf_input() }}
+              <button type="submit" class="button success">Restore</button>
+            </form>
+            {% else %}
+            <span class="muted">No action</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">No archived mouse snapshots yet.</p>
+  {% endif %}
+</section>
 {% endblock %}
